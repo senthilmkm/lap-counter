@@ -1,0 +1,81 @@
+{
+  "expo": {
+    "name": "Lap Counter",
+    "slug": "lap-counter",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "icon": "./assets/icon.png",
+    "ios": {
+      "bundleIdentifier": "com.senth.lapcounter",
+      "supportsTablet": false,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSBluetoothAlwaysUsageDescription": "Used indoors to fingerprint your starting location by sensing nearby Bluetooth devices.",
+        "NSBluetoothPeripheralUsageDescription": "Used indoors to fingerprint your starting location by sensing nearby Bluetooth devices.",
+        "NSMotionUsageDescription": "Used to count your steps and detect when you complete a lap.",
+        "NSLocationWhenInUseUsageDescription": "Used outdoors to detect when you've completed a lap by tracking your GPS position relative to your starting point.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Used outdoors to keep counting laps while the app is in the background.",
+        "NSLocationAlwaysUsageDescription": "Used outdoors to keep counting laps while the app is in the background.",
+        "UIBackgroundModes": [
+          "bluetooth-central",
+          "location",
+          "fetch",
+          "processing"
+        ],
+        "BGTaskSchedulerPermittedIdentifiers": [
+          "com.senth.lapcounter.background-scan"
+        ]
+      }
+    },
+    "android": {
+      "package": "com.senth.lapcounter",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "BLUETOOTH",
+        "BLUETOOTH_ADMIN",
+        "BLUETOOTH_SCAN",
+        "BLUETOOTH_CONNECT",
+        "ACTIVITY_RECOGNITION",
+        "VIBRATE",
+        "RECEIVE_BOOT_COMPLETED",
+        "WAKE_LOCK",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION",
+        "POST_NOTIFICATIONS"
+      ]
+    },
+    "plugins": [
+      "expo-dev-client",
+      "expo-sensors",
+      "expo-background-fetch",
+      "expo-task-manager",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Used outdoors to keep counting laps while the app is in the background.",
+          "locationWhenInUsePermission": "Used outdoors to detect when you've completed a lap by tracking your GPS position relative to your starting point.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#10b981",
+          "defaultChannel": "lap-counter"
+        }
+      ],
+      [
+        "react-native-ble-plx",
+        {
+          "isBackgroundEnabled": true,
+          "modes": ["central"],
+          "bluetoothAlwaysPermission": "Used indoors to fingerprint your starting location by sensing nearby Bluetooth devices."
+        }
+      ]
+    ]
+  }
+}
