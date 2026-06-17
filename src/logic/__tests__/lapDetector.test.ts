@@ -403,63 +403,61 @@ describe('lapDetector.reducer — BLE-free MIF mode fallback', () => {
     const emptyPoint = { bleDevices: new Map<string, number>(), magneticMagnitude: 45.0 };
     let s = reducer(createInitialState(), { type: 'start' });
     
-    // Calibrate with steps = 100
+    // Calibrate with steps = 0
     for (let i = 0; i < 5; i++) {
       s = reducer(s, {
         type: 'tick',
-        input: { now: i * 1000, observation: emptyPoint, displacementMagnitude: 0, steps: 100 }
+        input: { now: i * 1000, observation: emptyPoint, displacementMagnitude: 0, steps: 0 }
       });
     }
     s = reducer(s, {
       type: 'tick',
-      input: { now: 5000, observation: emptyPoint, displacementMagnitude: 0, steps: 100 }
+      input: { now: 5000, observation: emptyPoint, displacementMagnitude: 0, steps: 0 }
     });
     
     expect(s.phase).toBe('armed');
     expect(s.isBleFree).toBe(true);
-    expect(s.stepsAtLapStart).toBe(100);
 
-    // Walk out to 8.0m, steps = 114 (14 steps out)
+    // Walk out to 8.0m, steps = 14 (14 steps out)
     s = reducer(s, {
       type: 'tick',
-      input: { now: 6000, observation: emptyPoint, displacementMagnitude: 8.0, steps: 114 }
+      input: { now: 6000, observation: emptyPoint, displacementMagnitude: 8.0, steps: 14 }
     });
     expect(s.phase).toBe('away');
     expect(s.maxDisplacement).toBe(8.0);
-    expect(s.maxDisplacementSteps).toBe(14); // 114 - 100 = 14
+    expect(s.maxDisplacementSteps).toBe(14);
 
-    // Walk back 1 step: displacement = 7.5m, steps = 115. Remains in away.
+    // Walk back 1 step: displacement = 7.5m, steps = 15. Remains in away.
     s = reducer(s, {
       type: 'tick',
-      input: { now: 7000, observation: emptyPoint, displacementMagnitude: 7.5, steps: 115 }
+      input: { now: 7000, observation: emptyPoint, displacementMagnitude: 7.5, steps: 15 }
     });
     expect(s.phase).toBe('away');
 
-    // Walk back halfway: displacement = 3.0m (which is < 3.5m), but steps = 120 (total 20 steps).
-    // Minimum steps required = Math.max(12, Math.floor(1.6 * 14)) = Math.max(12, 22) = 22 steps.
-    // Since 120 - 100 = 20 steps, which is < 22, the step gate blocks it from counting a lap.
+    // Walk back halfway: displacement = 3.0m (which is < 4.0m), but steps = 15 (total 15 steps).
+    // Minimum steps required = Math.max(10, Math.floor(1.35 * 14)) = Math.max(10, 18) = 18 steps.
+    // Since 15 steps < 18, the step gate blocks it from counting a lap.
     s = reducer(s, {
       type: 'tick',
-      input: { now: 8000, observation: emptyPoint, displacementMagnitude: 3.0, steps: 120 }
+      input: { now: 8000, observation: emptyPoint, displacementMagnitude: 3.0, steps: 15 }
     });
-    expect(s.phase).toBe('approaching'); // transitions to approaching because displacement < 3.5m
-    expect(s.count).toBe(0); // but does NOT count a lap because stepsSinceLastLap (20) < 22!
+    expect(s.phase).toBe('approaching'); // transitions to approaching because displacement < 4.0m
+    expect(s.count).toBe(0); // but does NOT count a lap because steps (15) < 18!
 
-    // Try to count: displacement = 1.0m, steps = 120. Still blocked by step gate.
+    // Try to count: displacement = 1.0m, steps = 15. Still blocked by step gate.
     s = reducer(s, {
       type: 'tick',
-      input: { now: 9000, observation: emptyPoint, displacementMagnitude: 1.0, steps: 120 }
+      input: { now: 9000, observation: emptyPoint, displacementMagnitude: 1.0, steps: 15 }
     });
     expect(s.phase).toBe('approaching');
     expect(s.count).toBe(0);
 
-    // Now steps = 123 (total 23 steps, which is >= 22). Lap counts!
+    // Now steps = 19 (which is >= 18). Lap counts!
     s = reducer(s, {
       type: 'tick',
-      input: { now: 19000, observation: emptyPoint, displacementMagnitude: 1.0, steps: 123 } // 13s elapsed since start (passes 10s debounce)
+      input: { now: 19000, observation: emptyPoint, displacementMagnitude: 1.0, steps: 19 } // 13s elapsed since start (passes 10s debounce)
     });
     expect(s.count).toBe(1);
     expect(s.phase).toBe('armed');
-    expect(s.stepsAtLapStart).toBe(123);
   });
 });

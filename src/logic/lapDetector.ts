@@ -220,7 +220,7 @@ export function reducer(state: DetectorState, action: DetectorAction): DetectorS
       const sim = similarity(observation, state.pointA);
       const magDelta = magneticDelta(observation, state.pointA);
 
-      const stepsSinceLastLap = (steps ?? 0) - (state.stepsAtLapStart ?? 0);
+      const stepsSinceLastLap = steps ?? 0;
       let nextMaxDisplacement = state.maxDisplacement ?? 0;
       let nextMaxDisplacementSteps = state.maxDisplacementSteps ?? 0;
       if (displacementMagnitude > nextMaxDisplacement) {
@@ -237,10 +237,10 @@ export function reducer(state: DetectorState, action: DetectorAction): DetectorS
       const magThreshold = isBleFree ? 15.0 : cfg.magneticDeltaThreshold;
 
       // Calculate dynamic displacement return threshold to handle both short hallway walks
-      // (where user walks 6-8m and return threshold should be tighter, e.g. 3m) and
+      // (where user walks 6-8m and return threshold should be tighter, e.g. 4m) and
       // long walks (where drift occurs and threshold should be looser, e.g. 8m).
       const displacementThreshold = isBleFree
-        ? Math.max(3.0, Math.min(8.0, nextMaxDisplacement * 0.45))
+        ? Math.max(4.0, Math.min(8.0, nextMaxDisplacement * 0.45))
         : cfg.displacementThreshold;
 
       const baseUpdate: Partial<DetectorState> = {
@@ -254,7 +254,7 @@ export function reducer(state: DetectorState, action: DetectorAction): DetectorS
         lastDisplacementThreshold: displacementThreshold,
       };
 
-      const minStepsRequired = Math.max(12, Math.floor(1.6 * nextMaxDisplacementSteps));
+      const minStepsRequired = Math.max(10, Math.floor(1.35 * nextMaxDisplacementSteps));
       const stepGateOk = !isBleFree || steps === undefined || stepsSinceLastLap >= minStepsRequired;
 
       const isNear =
@@ -264,7 +264,7 @@ export function reducer(state: DetectorState, action: DetectorAction): DetectorS
         stepGateOk;
 
       const isFar = isBleFree
-        ? displacementMagnitude >= 3.5
+        ? displacementMagnitude >= 4.0
         : sim <= cfg.similarityFarThreshold;
 
       if (state.phase === 'armed') {
@@ -276,7 +276,7 @@ export function reducer(state: DetectorState, action: DetectorAction): DetectorS
 
       if (state.phase === 'away') {
         const hasLeftAwayZone = isBleFree
-          ? displacementMagnitude < 3.5
+          ? displacementMagnitude < 4.0
           : sim > cfg.similarityFarThreshold;
         if (hasLeftAwayZone) {
           return { ...state, ...baseUpdate, phase: 'approaching' };
@@ -305,7 +305,7 @@ export function reducer(state: DetectorState, action: DetectorAction): DetectorS
           phase: finished ? 'finished' : 'armed',
           maxDisplacement: 0, // Reset for the next lap!
           maxDisplacementSteps: 0, // Reset for the next lap!
-          stepsAtLapStart: steps ?? 0, // Reset for the next lap!
+          stepsAtLapStart: 0, // Reset for the next lap!
         };
       }
       return { ...state, ...baseUpdate };
