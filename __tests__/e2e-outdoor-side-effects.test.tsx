@@ -161,7 +161,7 @@ describe('useLapCounter — outdoor mode', () => {
     const hapticCalls = HapticsMock.__getHapticCalls();
     expect(
       hapticCalls.some(
-        (c) => c.kind === 'impact' && c.arg === Haptics.ImpactFeedbackStyle.Medium
+        (c) => c.kind === 'impact' && c.arg === Haptics.ImpactFeedbackStyle.Heavy
       )
     ).toBe(true);
     expect(
@@ -216,10 +216,14 @@ describe('useLapCounter — outdoor mode', () => {
       expect(result.current.state.count).toBe(3);
     });
 
+    await act(async () => {
+      jest.advanceTimersByTime(500);
+    });
+
     const lapImpacts = HapticsMock.__getHapticCalls().filter(
-      (c) => c.kind === 'impact' && c.arg === Haptics.ImpactFeedbackStyle.Medium
+      (c) => c.kind === 'impact' && c.arg === Haptics.ImpactFeedbackStyle.Heavy
     );
-    expect(lapImpacts.length).toBe(3);
+    expect(lapImpacts.length).toBe(6);
   });
 
   it('does not subscribe to BLE/motion sensors in outdoor mode', async () => {

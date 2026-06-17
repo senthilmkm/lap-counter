@@ -63,6 +63,7 @@ export type ActiveDetectorState = DetectorState | OutdoorDetectorState;
  */
 export type StartConfig = {
   mode?: LapMode;
+  disableBle?: boolean;
 } & Partial<DetectorConfig> &
   Partial<OutdoorDetectorConfig>;
 
@@ -103,6 +104,11 @@ export function useLapCounter() {
   const startingRef = useRef(false);
   const lastHapticCount = useRef(0);
   const targetNotifiedRef = useRef(false);
+  const disableBleRef = useRef(false);
+
+  const [sessionStartTs, setSessionStartTs] = useState<number | null>(null);
+  const [sessionEndTs, setSessionEndTs] = useState<number | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   useEffect(() => {
     installForegroundHandler();
@@ -153,6 +159,10 @@ export function useLapCounter() {
       errorRef.current = null;
       lastHapticCount.current = 0;
       targetNotifiedRef.current = false;
+      disableBleRef.current = config?.disableBle ?? false;
+      setSessionStartTs(Date.now());
+      setSessionEndTs(null);
+      setElapsedSeconds(0);
 
       const requestedMode = config?.mode ?? mode;
       if (requestedMode !== mode) _setMode(requestedMode);
@@ -165,13 +175,21 @@ export function useLapCounter() {
         if (requestedMode === 'indoor') {
           const motion = await startMotionTracker();
           motionHandleRef.current = motion;
-          const ble = await startBleScan(
-            (obs) => aggregatorRef.current.add(obs),
-            (err) => {
-              errorRef.current = { message: err.message };
+          
+          if (!disableBleRef.current) {
+            try {
+              const ble = await startBleScan(
+                (obs) => aggregatorRef.current.add(obs),
+                (err) => {
+                  console.warn('BLE scanning error:', err.message);
+                }
+              );
+              bleHandleRef.current = ble;
+            } catch (bleError) {
+              console.log('Bluetooth unavailable, running in BLE-Free MIF Mode:', bleError);
+              bleHandleRef.current = null;
             }
-          );
-          bleHandleRef.current = ble;
+          }
 
           indoorDispatch({
             type: 'start',
@@ -181,7 +199,7 @@ export function useLapCounter() {
           tickRef.current = setInterval(() => {
             const motionSnap = motionHandleRef.current?.snapshot();
             if (!motionSnap) return;
-            const bleSnap = aggregatorRef.current.snapshot();
+            const bleSnap = disableBleRef.current ? new Map<string, number>() : aggregatorRef.current.snapshot();
             indoorDispatch({
               type: 'tick',
               input: {
@@ -191,6 +209,9 @@ export function useLapCounter() {
                   magneticMagnitude: motionSnap.magneticMagnitude,
                 },
                 displacementMagnitude: motionSnap.displacementMagnitude,
+                gyroZRate: motionSnap.gyroZRate,
+                gyroYaw: motionSnap.gyroYaw,
+                steps: motionSnap.steps,
               },
             });
           }, TICK_INTERVAL_MS);
@@ -226,6 +247,8 @@ export function useLapCounter() {
         await teardown();
         indoorDispatch({ type: 'reset' });
         outdoorDispatch({ type: 'reset' });
+        setSessionStartTs(null);
+        setSessionEndTs(null);
       } finally {
         startingRef.current = false;
       }
@@ -234,18 +257,44 @@ export function useLapCounter() {
   );
 
   const stop = useCallback(async () => {
+    const isRunning = activeState.phase !== 'idle' && activeState.phase !== 'finished';
+    if (isRunning) {
+      setSessionEndTs(Date.now());
+    }
     await teardown();
     await cancelAllNotifications();
     indoorDispatch({ type: 'stop' });
     outdoorDispatch({ type: 'stop' });
-  }, [teardown]);
+  }, [teardown, activeState.phase]);
 
   const reset = useCallback(async () => {
+    setSessionStartTs(null);
+    setSessionEndTs(null);
+    setElapsedSeconds(0);
     await teardown();
     await cancelAllNotifications();
     indoorDispatch({ type: 'reset' });
     outdoorDispatch({ type: 'reset' });
   }, [teardown]);
+
+  // Keep a running clock while a session is walking
+  useEffect(() => {
+    let clockTimer: ReturnType<typeof setInterval> | null = null;
+    const isRunning =
+      activeState.phase !== 'idle' &&
+      activeState.phase !== 'finished';
+
+    if (isRunning && sessionStartTs) {
+      clockTimer = setInterval(() => {
+        setElapsedSeconds(Math.floor((Date.now() - sessionStartTs) / 1000));
+      }, 1000);
+    } else if (activeState.phase === 'idle') {
+      setElapsedSeconds(0);
+    }
+    return () => {
+      if (clockTimer) clearInterval(clockTimer);
+    };
+  }, [activeState.phase, sessionStartTs]);
 
   // After each counted lap (in either mode): zero motion baseline + haptic.
   // Triggered by `count` change rather than `lastLapAt` so the haptic
@@ -262,6 +311,7 @@ export function useLapCounter() {
   // Target reached: stop sensors, fire success haptic + notification.
   useEffect(() => {
     if (activeState.phase === 'finished') {
+      setSessionEndTs(Date.now());
       if (tickRef.current) {
         clearInterval(tickRef.current);
         tickRef.current = null;
@@ -308,5 +358,8 @@ export function useLapCounter() {
     defaultOutdoorConfig: DEFAULT_OUTDOOR_CONFIG,
     /** Backwards-compat alias for callers that don't care about mode. */
     defaultConfig: mode === 'indoor' ? DEFAULT_CONFIG : DEFAULT_OUTDOOR_CONFIG,
+    sessionStartTs,
+    sessionEndTs,
+    elapsedSeconds,
   };
 }

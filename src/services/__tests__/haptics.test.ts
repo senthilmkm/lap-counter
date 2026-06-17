@@ -18,11 +18,16 @@ beforeEach(() => {
 });
 
 describe('haptics service', () => {
-  it('lapHaptic triggers a Medium impact', async () => {
+  it('lapHaptic triggers a Double Heavy impact', async () => {
     await lapHaptic();
-    expect(Haptics.impactAsync).toHaveBeenCalledTimes(1);
-    expect(Haptics.impactAsync).toHaveBeenCalledWith(
-      Haptics.ImpactFeedbackStyle.Medium
+    expect(Haptics.impactAsync).toHaveBeenCalledTimes(2);
+    expect(Haptics.impactAsync).toHaveBeenNthCalledWith(
+      1,
+      Haptics.ImpactFeedbackStyle.Heavy
+    );
+    expect(Haptics.impactAsync).toHaveBeenNthCalledWith(
+      2,
+      Haptics.ImpactFeedbackStyle.Heavy
     );
   });
 

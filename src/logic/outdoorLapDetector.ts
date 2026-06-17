@@ -251,7 +251,11 @@ export function outdoorReducer(
         state.lastLapAt == null ? Infinity : now - state.lastLapAt;
       const debounceOK = sinceLap >= cfg.lapDebounceMs;
 
-      const isNear = dist <= cfg.nearRadiusM;
+      // Scale near radius dynamically based on current GPS accuracy.
+      // If accuracy is high (e.g. 3m), shrink the radius (down to 8m floor) to avoid early triggers.
+      // If accuracy is poor (e.g. 20m), expand it up to the configured limit.
+      const adaptiveNearRadius = Math.max(8, Math.min(cfg.nearRadiusM, position.accuracy * 1.5));
+      const isNear = dist <= adaptiveNearRadius;
       const isFar = dist >= cfg.farRadiusM;
 
       if (state.phase === 'armed') {

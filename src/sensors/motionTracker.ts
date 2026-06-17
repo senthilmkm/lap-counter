@@ -1,4 +1,4 @@
-import { DeviceMotion, Magnetometer, Pedometer } from 'expo-sensors';
+import { DeviceMotion, Magnetometer, Pedometer, Gyroscope } from 'expo-sensors';
 
 type RemovableSubscription = { remove: () => void };
 
@@ -16,6 +16,10 @@ export type MotionSnapshot = {
   displacement: { x: number; y: number };
   /** Magnitude of the displacement vector, meters. */
   displacementMagnitude: number;
+  /** Raw angular velocity around Z-axis from Gyroscope (rad/s). */
+  gyroZRate: number;
+  /** Integrated yaw from the Gyroscope (radians). */
+  gyroYaw: number;
 };
 
 export type MotionTrackerHandle = {
@@ -27,13 +31,6 @@ export type MotionTrackerHandle = {
   stop: () => void;
 };
 
-const STRIDE_LENGTH_M = 0.7; // average adult walking stride
-
-/**
- * Spin up Magnetometer + DeviceMotion + Pedometer subscriptions and
- * fuse them into a continuously-updated MotionSnapshot. The snapshot
- * is read synchronously by the lap detector at its own cadence.
- */
 export async function startMotionTracker(): Promise<MotionTrackerHandle> {
   let magneticMagnitude = 0;
   let lastYaw = 0;
@@ -43,6 +40,13 @@ export async function startMotionTracker(): Promise<MotionTrackerHandle> {
   let steps = 0;
   let displacement = { x: 0, y: 0 };
   let lastStepCount = 0;
+  let rawGyroYaw = 0;
+  let rawGyroZRate = 0;
+  let gyroBaseline = 0;
+
+  let trackerStartTs = Date.now();
+  const gyroZRateSamples: number[] = [];
+  let gyroBias = 0;
 
   Magnetometer.setUpdateInterval(100);
   const magSub = Magnetometer.addListener(({ x, y, z }) => {
@@ -62,6 +66,17 @@ export async function startMotionTracker(): Promise<MotionTrackerHandle> {
     }
   });
 
+  Gyroscope.setUpdateInterval(20);
+  const gyroSub = Gyroscope.addListener(({ z }) => {
+    rawGyroZRate = z;
+    gyroZRateSamples.push(z);
+    if (gyroZRateSamples.length > 250) {
+      gyroZRateSamples.shift();
+    }
+    // Integrate Z-axis rotation rate using bias correction
+    rawGyroYaw += (z - gyroBias) * 0.02;
+  });
+
   let pedSub: RemovableSubscription | null = null;
   const pedAvailable = await Pedometer.isAvailableAsync().catch(() => false);
   if (pedAvailable) {
@@ -73,10 +88,24 @@ export async function startMotionTracker(): Promise<MotionTrackerHandle> {
       steps = sessionSteps;
 
       if (newSteps > 0) {
+        // Calculate walking cadence (steps per minute) to adapt stride length
+        const elapsed = (Date.now() - trackerStartTs) / 1000;
+        const cadence = elapsed > 5 ? (sessionSteps / elapsed) * 60 : 100;
+
+        let strideLength = 0.55; // default average adult walking stride indoors
+        if (cadence < 85) {
+          strideLength = 0.45; // shorter stride for slow walking indoors
+        } else if (cadence > 125) {
+          strideLength = 0.7; // longer stride for fast walking/jogging indoors
+        } else {
+          // Linear interpolation between 0.45m at 85 steps/min and 0.7m at 125 steps/min
+          strideLength = 0.45 + ((cadence - 85) / (125 - 85)) * (0.7 - 0.45);
+        }
+
         // Project new steps onto current heading (relative to baseline yaw).
         const heading = cumulativeYaw - yawBaseline;
-        const dx = Math.sin(heading) * newSteps * STRIDE_LENGTH_M;
-        const dy = Math.cos(heading) * newSteps * STRIDE_LENGTH_M;
+        const dx = Math.sin(heading) * newSteps * strideLength;
+        const dy = Math.cos(heading) * newSteps * strideLength;
         displacement = { x: displacement.x + dx, y: displacement.y + dy };
       }
     });
@@ -92,18 +121,27 @@ export async function startMotionTracker(): Promise<MotionTrackerHandle> {
         steps,
         displacement: { x: dx, y: dy },
         displacementMagnitude: Math.sqrt(dx * dx + dy * dy),
+        gyroZRate: rawGyroZRate,
+        gyroYaw: rawGyroYaw - gyroBaseline,
       };
     },
     resetBaseline: () => {
       yawBaseline = cumulativeYaw;
+      if (gyroZRateSamples.length > 0) {
+        // Compute bias as the average Z-rate while standing still (calibration phase)
+        gyroBias = gyroZRateSamples.reduce((sum, val) => sum + val, 0) / gyroZRateSamples.length;
+      }
+      gyroBaseline = rawGyroYaw;
       stepBaseline = null;
       lastStepCount = 0;
       steps = 0;
       displacement = { x: 0, y: 0 };
+      trackerStartTs = Date.now();
     },
     stop: () => {
       magSub.remove();
       motionSub.remove();
+      gyroSub.remove();
       pedSub?.remove();
     },
   };

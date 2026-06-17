@@ -344,3 +344,122 @@ describe('lapDetector.statusLabel', () => {
     }
   });
 });
+
+describe('lapDetector.reducer — BLE-free MIF mode fallback', () => {
+  it('calibrates with empty BLE and counts a lap using only magnetic + displacement', () => {
+    const emptyPoint = { bleDevices: new Map<string, number>(), magneticMagnitude: 45.0 };
+    let s = reducer(createInitialState(), { type: 'start' });
+    
+    // 5 calibration ticks
+    for (let i = 0; i < 5; i++) {
+      s = reducer(s, {
+        type: 'tick',
+        input: { now: i * 1000, observation: emptyPoint, displacementMagnitude: 0 }
+      });
+    }
+    // Transition to armed
+    s = reducer(s, {
+      type: 'tick',
+      input: { now: 5000, observation: emptyPoint, displacementMagnitude: 0 }
+    });
+    
+    expect(s.phase).toBe('armed');
+    expect(s.isBleFree).toBe(true);
+
+    // Stays armed if displacement remains small
+    s = reducer(s, {
+      type: 'tick',
+      input: { now: 6000, observation: emptyPoint, displacementMagnitude: 2.0 }
+    });
+    expect(s.phase).toBe('armed');
+
+    // Transitions to away once displacement is >= 5.0m
+    s = reducer(s, {
+      type: 'tick',
+      input: { now: 7000, observation: emptyPoint, displacementMagnitude: 6.0 }
+    });
+    expect(s.phase).toBe('away');
+
+    // Transitions to approaching once user walks back (displacement < 3.5m)
+    s = reducer(s, {
+      type: 'tick',
+      input: { now: 8000, observation: emptyPoint, displacementMagnitude: 3.0 }
+    });
+    expect(s.phase).toBe('approaching');
+
+    // Counts a lap once displacement <= 3.0m and magnetic magnitude matches Point A
+    // (within 15.0 uT).
+    const matchingPoint = { bleDevices: new Map<string, number>(), magneticMagnitude: 47.0 }; // delta = 2.0 uT <= 15.0 uT
+    s = reducer(s, {
+      type: 'tick',
+      input: { now: 18000, observation: matchingPoint, displacementMagnitude: 1.0 } // 13s elapsed since start (passes 10s debounce)
+    });
+    
+    expect(s.count).toBe(1);
+    expect(s.phase).toBe('armed');
+  });
+
+  it('BLE-free MIF mode: gates lap counting using step count', () => {
+    const emptyPoint = { bleDevices: new Map<string, number>(), magneticMagnitude: 45.0 };
+    let s = reducer(createInitialState(), { type: 'start' });
+    
+    // Calibrate with steps = 100
+    for (let i = 0; i < 5; i++) {
+      s = reducer(s, {
+        type: 'tick',
+        input: { now: i * 1000, observation: emptyPoint, displacementMagnitude: 0, steps: 100 }
+      });
+    }
+    s = reducer(s, {
+      type: 'tick',
+      input: { now: 5000, observation: emptyPoint, displacementMagnitude: 0, steps: 100 }
+    });
+    
+    expect(s.phase).toBe('armed');
+    expect(s.isBleFree).toBe(true);
+    expect(s.stepsAtLapStart).toBe(100);
+
+    // Walk out to 8.0m, steps = 114 (14 steps out)
+    s = reducer(s, {
+      type: 'tick',
+      input: { now: 6000, observation: emptyPoint, displacementMagnitude: 8.0, steps: 114 }
+    });
+    expect(s.phase).toBe('away');
+    expect(s.maxDisplacement).toBe(8.0);
+    expect(s.maxDisplacementSteps).toBe(14); // 114 - 100 = 14
+
+    // Walk back 1 step: displacement = 7.5m, steps = 115. Remains in away.
+    s = reducer(s, {
+      type: 'tick',
+      input: { now: 7000, observation: emptyPoint, displacementMagnitude: 7.5, steps: 115 }
+    });
+    expect(s.phase).toBe('away');
+
+    // Walk back halfway: displacement = 3.0m (which is < 3.5m), but steps = 120 (total 20 steps).
+    // Minimum steps required = Math.max(12, Math.floor(1.6 * 14)) = Math.max(12, 22) = 22 steps.
+    // Since 120 - 100 = 20 steps, which is < 22, the step gate blocks it from counting a lap.
+    s = reducer(s, {
+      type: 'tick',
+      input: { now: 8000, observation: emptyPoint, displacementMagnitude: 3.0, steps: 120 }
+    });
+    expect(s.phase).toBe('approaching'); // transitions to approaching because displacement < 3.5m
+    expect(s.count).toBe(0); // but does NOT count a lap because stepsSinceLastLap (20) < 22!
+
+    // Try to count: displacement = 1.0m, steps = 120. Still blocked by step gate.
+    s = reducer(s, {
+      type: 'tick',
+      input: { now: 9000, observation: emptyPoint, displacementMagnitude: 1.0, steps: 120 }
+    });
+    expect(s.phase).toBe('approaching');
+    expect(s.count).toBe(0);
+
+    // Now steps = 123 (total 23 steps, which is >= 22). Lap counts!
+    s = reducer(s, {
+      type: 'tick',
+      input: { now: 19000, observation: emptyPoint, displacementMagnitude: 1.0, steps: 123 } // 13s elapsed since start (passes 10s debounce)
+    });
+    expect(s.count).toBe(1);
+    expect(s.phase).toBe('armed');
+    expect(s.stepsAtLapStart).toBe(123);
+  });
+});

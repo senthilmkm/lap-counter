@@ -66,12 +66,29 @@ export type DetectorState = {
   lastMagneticDelta: number;
   /** Current displacement from A (latest). */
   lastDisplacementMagnitude: number;
+  /** Raw Gyroscope Z-axis rotation rate. */
+  lastGyroZRate?: number;
+  /** Integrated Gyroscope yaw. */
+  lastGyroYaw?: number;
+  /** Whether the session is running in BLE-Free mode. */
+  isBleFree?: boolean;
+  /** Max displacement reached in the current lap (m) */
+  maxDisplacement?: number;
+  /** Current displacement threshold being used (m) */
+  lastDisplacementThreshold?: number;
+  /** Step count baseline at the start of the current lap */
+  stepsAtLapStart?: number;
+  /** Steps walked at the moment max displacement was reached in the current lap */
+  maxDisplacementSteps?: number;
 };
 
 export type DetectorInput = {
   now: number;
   observation: Fingerprint;
   displacementMagnitude: number;
+  gyroZRate?: number;
+  gyroYaw?: number;
+  steps?: number;
 };
 
 export type DetectorAction =
@@ -94,6 +111,13 @@ export function createInitialState(
     lastSimilarity: 0,
     lastMagneticDelta: 0,
     lastDisplacementMagnitude: 0,
+    lastGyroZRate: 0,
+    lastGyroYaw: 0,
+    isBleFree: false,
+    maxDisplacement: 0,
+    lastDisplacementThreshold: 10,
+    stepsAtLapStart: 0,
+    maxDisplacementSteps: 0,
   };
 }
 
@@ -152,7 +176,7 @@ export function reducer(state: DetectorState, action: DetectorAction): DetectorS
       return createInitialState(state.config);
 
     case 'tick': {
-      const { now, observation, displacementMagnitude } = action.input;
+      const { now, observation, displacementMagnitude, gyroZRate, gyroYaw, steps } = action.input;
 
       if (state.phase === 'idle' || state.phase === 'finished') {
         return state;
@@ -164,6 +188,7 @@ export function reducer(state: DetectorState, action: DetectorAction): DetectorS
         const elapsed = now - startedAt;
         if (elapsed >= state.config.calibrationMs && samples.length > 0) {
           const pointA = averageSamples(samples);
+          const isBleFree = pointA.bleDevices.size === 0;
           return {
             ...state,
             phase: 'armed',
@@ -173,34 +198,74 @@ export function reducer(state: DetectorState, action: DetectorAction): DetectorS
             lastSimilarity: 1,
             lastMagneticDelta: 0,
             lastDisplacementMagnitude: 0,
+            lastGyroZRate: gyroZRate,
+            lastGyroYaw: gyroYaw,
+            isBleFree,
+            stepsAtLapStart: steps ?? 0,
+            maxDisplacement: 0,
+            maxDisplacementSteps: 0,
           };
         }
         return {
           ...state,
           calibrationStartedAt: startedAt,
           calibrationSamples: samples,
+          lastGyroZRate: gyroZRate,
+          lastGyroYaw: gyroYaw,
         };
       }
 
       // armed | away | approaching
+      const isBleFree = state.isBleFree ?? false;
       const sim = similarity(observation, state.pointA);
       const magDelta = magneticDelta(observation, state.pointA);
-      const baseUpdate: Partial<DetectorState> = {
-        lastSimilarity: sim,
-        lastMagneticDelta: magDelta,
-        lastDisplacementMagnitude: displacementMagnitude,
-      };
+
+      const stepsSinceLastLap = (steps ?? 0) - (state.stepsAtLapStart ?? 0);
+      let nextMaxDisplacement = state.maxDisplacement ?? 0;
+      let nextMaxDisplacementSteps = state.maxDisplacementSteps ?? 0;
+      if (displacementMagnitude > nextMaxDisplacement) {
+        nextMaxDisplacement = displacementMagnitude;
+        nextMaxDisplacementSteps = stepsSinceLastLap;
+      }
 
       const cfg = state.config;
       const sinceLap =
         state.lastLapAt == null ? Infinity : now - state.lastLapAt;
       const debounceOK = sinceLap >= cfg.lapDebounceMs;
 
+      // Adjust thresholds if running in BLE-free MIF mode
+      const magThreshold = isBleFree ? 15.0 : cfg.magneticDeltaThreshold;
+
+      // Calculate dynamic displacement return threshold to handle both short hallway walks
+      // (where user walks 6-8m and return threshold should be tighter, e.g. 3m) and
+      // long walks (where drift occurs and threshold should be looser, e.g. 8m).
+      const displacementThreshold = isBleFree
+        ? Math.max(3.0, Math.min(8.0, nextMaxDisplacement * 0.45))
+        : cfg.displacementThreshold;
+
+      const baseUpdate: Partial<DetectorState> = {
+        lastSimilarity: sim,
+        lastMagneticDelta: magDelta,
+        lastDisplacementMagnitude: displacementMagnitude,
+        lastGyroZRate: gyroZRate,
+        lastGyroYaw: gyroYaw,
+        maxDisplacement: nextMaxDisplacement,
+        maxDisplacementSteps: nextMaxDisplacementSteps,
+        lastDisplacementThreshold: displacementThreshold,
+      };
+
+      const minStepsRequired = Math.max(12, Math.floor(1.6 * nextMaxDisplacementSteps));
+      const stepGateOk = !isBleFree || steps === undefined || stepsSinceLastLap >= minStepsRequired;
+
       const isNear =
-        sim >= cfg.similarityNearThreshold &&
-        magDelta <= cfg.magneticDeltaThreshold &&
-        displacementMagnitude <= cfg.displacementThreshold;
-      const isFar = sim <= cfg.similarityFarThreshold;
+        (isBleFree || sim >= cfg.similarityNearThreshold) &&
+        magDelta <= magThreshold &&
+        displacementMagnitude <= displacementThreshold &&
+        stepGateOk;
+
+      const isFar = isBleFree
+        ? displacementMagnitude >= 3.5
+        : sim <= cfg.similarityFarThreshold;
 
       if (state.phase === 'armed') {
         if (isFar) {
@@ -210,7 +275,10 @@ export function reducer(state: DetectorState, action: DetectorAction): DetectorS
       }
 
       if (state.phase === 'away') {
-        if (sim > cfg.similarityFarThreshold) {
+        const hasLeftAwayZone = isBleFree
+          ? displacementMagnitude < 3.5
+          : sim > cfg.similarityFarThreshold;
+        if (hasLeftAwayZone) {
           return { ...state, ...baseUpdate, phase: 'approaching' };
         }
         return { ...state, ...baseUpdate };
@@ -235,6 +303,9 @@ export function reducer(state: DetectorState, action: DetectorAction): DetectorS
           pointA: refinedA,
           lastLapAt: now,
           phase: finished ? 'finished' : 'armed',
+          maxDisplacement: 0, // Reset for the next lap!
+          maxDisplacementSteps: 0, // Reset for the next lap!
+          stepsAtLapStart: steps ?? 0, // Reset for the next lap!
         };
       }
       return { ...state, ...baseUpdate };
@@ -253,9 +324,9 @@ export function statusLabel(state: DetectorState): string {
     case 'calibrating':
       return 'Calibrating point A — stand still…';
     case 'armed':
-      return 'Walking lap…';
+      return state.isBleFree ? 'Walking lap (BLE-Free)…' : 'Walking lap…';
     case 'away':
-      return 'Walking lap…';
+      return state.isBleFree ? 'Walking lap (BLE-Free)…' : 'Walking lap…';
     case 'approaching':
       return 'Approaching point A…';
     case 'finished':

@@ -18,9 +18,13 @@ async function safe(action: () => Promise<unknown>): Promise<void> {
   }
 }
 
-/** Fired the moment a lap is counted. A medium impact is "tactile but not jarring". */
+/** Fired the moment a lap is counted. Double heavy impact for strong tactile perception. */
 export async function lapHaptic(): Promise<void> {
-  await safe(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium));
+  await safe(async () => {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+  });
 }
 
 /**

@@ -135,6 +135,14 @@ describe('<App /> — Running state', () => {
   });
 
   it('Reset returns to the Setup screen', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation((title, message, buttons) => {
+      if (buttons && buttons.length > 0) {
+        const confirmBtn = buttons.find((b: any) => b.text === 'Confirm' || b.style === 'destructive');
+        if (confirmBtn && confirmBtn.onPress) {
+          confirmBtn.onPress();
+        }
+      }
+    });
     render(<App />);
     fireEvent.changeText(screen.getByPlaceholderText('10'), '3');
     await act(async () => {
@@ -149,9 +157,18 @@ describe('<App /> — Running state', () => {
     await waitFor(() => {
       expect(screen.getByText('How many laps do you want?')).toBeTruthy();
     });
+    alertSpy.mockRestore();
   });
 
   it('Stop also returns to the Setup screen', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation((title, message, buttons) => {
+      if (buttons && buttons.length > 0) {
+        const confirmBtn = buttons.find((b: any) => b.text === 'Confirm' || b.style === 'destructive');
+        if (confirmBtn && confirmBtn.onPress) {
+          confirmBtn.onPress();
+        }
+      }
+    });
     render(<App />);
     fireEvent.changeText(screen.getByPlaceholderText('10'), '3');
     await act(async () => {
@@ -166,6 +183,7 @@ describe('<App /> — Running state', () => {
     await waitFor(() => {
       expect(screen.getByText('How many laps do you want?')).toBeTruthy();
     });
+    alertSpy.mockRestore();
   });
 });
 
@@ -185,7 +203,14 @@ describe('<App /> — mode toggle', () => {
   it('switches help text and selection when Outdoor is tapped', () => {
     render(<App />);
     expect(
-      screen.getByText(/ambient Bluetooth \+ magnetic field/)
+      screen.getByText(/magnetometer, gyroscope, and step count/)
+    ).toBeTruthy();
+
+    // Toggle BLE switch to true (first switch is the BLE beacons toggle)
+    const switches = screen.getAllByRole('switch');
+    fireEvent(switches[0], 'valueChange', true);
+    expect(
+      screen.getByText(/nearby BLE beacons \+ magnetic field/)
     ).toBeTruthy();
 
     fireEvent.press(screen.getByText('Outdoor'));

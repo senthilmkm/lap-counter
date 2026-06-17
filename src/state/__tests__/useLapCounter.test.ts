@@ -295,7 +295,7 @@ describe('useLapCounter', () => {
     const hapticCalls = HapticsMock.__getHapticCalls();
     expect(
       hapticCalls.some(
-        (c) => c.kind === 'impact' && c.arg === Haptics.ImpactFeedbackStyle.Medium
+        (c) => c.kind === 'impact' && c.arg === Haptics.ImpactFeedbackStyle.Heavy
       )
     ).toBe(true);
     expect(
@@ -344,4 +344,56 @@ describe('useLapCounter', () => {
     const indoor = result.current.state as DetectorState;
     expect(indoor.pointA.bleDevices.size).toBeGreaterThan(0);
   });
+
+  it('updates sessionStartTs, sessionEndTs, and elapsedSeconds during the walk lifecycle', async () => {
+    const { result } = renderHook(() => useLapCounter());
+
+    expect(result.current.sessionStartTs).toBeNull();
+    expect(result.current.sessionEndTs).toBeNull();
+    expect(result.current.elapsedSeconds).toBe(0);
+
+    // Start
+    await act(async () => {
+      await result.current.start({ targetLaps: 3 });
+    });
+
+    expect(result.current.sessionStartTs).not.toBeNull();
+    expect(typeof result.current.sessionStartTs).toBe('number');
+    expect(result.current.sessionEndTs).toBeNull();
+
+    // Advance time during calibration (calibrating phase ticks elapsedSeconds now)
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    expect(result.current.elapsedSeconds).toBe(2);
+
+    // Complete calibration to transition to armed phase (walking starts)
+    const manager = blePlx.__getLastManager();
+    await act(async () => {
+      for (let i = 0; i < 6; i++) {
+        Magnetometer.__emit({ x: 30, y: 30, z: 30 });
+        manager.__emitDevice({ id: 'router-1', rssi: -60 });
+        jest.advanceTimersByTime(1000);
+      }
+    });
+
+    expect(result.current.state.phase).toBe('armed');
+    expect(result.current.elapsedSeconds).toBe(8);
+
+    // Armed (running/walking): elapsed seconds should tick
+    await act(async () => {
+      jest.advanceTimersByTime(4000);
+    });
+    expect(result.current.elapsedSeconds).toBe(12);
+
+    // Stop
+    await act(async () => {
+      await result.current.stop();
+    });
+
+    expect(result.current.sessionEndTs).not.toBeNull();
+    expect(typeof result.current.sessionEndTs).toBe('number');
+    expect(result.current.sessionEndTs).toBeGreaterThanOrEqual(result.current.sessionStartTs!);
+  });
 });
+

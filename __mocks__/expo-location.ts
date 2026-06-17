@@ -67,6 +67,9 @@ export const getBackgroundPermissionsAsync = jest.fn(
 
 export const hasServicesEnabledAsync = jest.fn(async () => servicesEnabled);
 
+export const getLastKnownPositionAsync = jest.fn(async () => null);
+export const getCurrentPositionAsync = jest.fn(async () => null);
+
 export const watchPositionAsync = jest.fn(
   async (_options: unknown, callback: WatchCallback) => {
     const watcher: Watcher = {
@@ -133,5 +136,7 @@ export function __resetLocation(): void {
   getForegroundPermissionsAsync.mockClear();
   getBackgroundPermissionsAsync.mockClear();
   hasServicesEnabledAsync.mockClear();
+  getLastKnownPositionAsync.mockClear();
+  getCurrentPositionAsync.mockClear();
   watchPositionAsync.mockClear();
 }

@@ -34,6 +34,7 @@ export const Magnetometer = createSensor<{ x: number; y: number; z: number }>();
 export const DeviceMotion = createSensor<{
   rotation?: { alpha: number; beta: number; gamma: number };
 }>();
+export const Gyroscope = createSensor<{ x: number; y: number; z: number }>();
 
 const pedListeners: Listener<{ steps: number }>[] = [];
 let pedAvailable = true;
@@ -66,5 +67,6 @@ export const Pedometer = {
 export function __resetAllSensors() {
   Magnetometer.__reset();
   DeviceMotion.__reset();
+  Gyroscope.__reset();
   Pedometer.__reset();
 }

@@ -68,6 +68,47 @@ export async function startLocationTracking(
     throw new Error('Location services are disabled — enable them and retry.');
   }
 
+  const handleRawLocation = (raw: Location.LocationObject | null) => {
+    if (!raw) return;
+    const lat = raw.coords?.latitude;
+    const lon = raw.coords?.longitude;
+    const acc = raw.coords?.accuracy;
+    if (
+      typeof lat !== 'number' ||
+      typeof lon !== 'number' ||
+      typeof acc !== 'number' ||
+      !Number.isFinite(lat) ||
+      !Number.isFinite(lon)
+    ) {
+      return;
+    }
+    const point: GeoPoint = {
+      latitude: lat,
+      longitude: lon,
+      accuracy: Math.max(acc, 1),
+    };
+    lastSnapshot = point;
+    onLocation(point);
+  };
+
+  // 1. Fast parallel resolution: check cached last known position (instant)
+  Location.getLastKnownPositionAsync()
+    .then((raw) => {
+      if (raw && lastSnapshot === null) {
+        handleRawLocation(raw);
+      }
+    })
+    .catch(() => {});
+
+  // 2. Fast parallel resolution: query balanced position (coarse lock usually resolves in <1s)
+  Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
+    .then((raw) => {
+      if (raw && lastSnapshot === null) {
+        handleRawLocation(raw);
+      }
+    })
+    .catch(() => {});
+
   const sub = await Location.watchPositionAsync(
     {
       accuracy: Location.Accuracy.BestForNavigation,
@@ -77,25 +118,7 @@ export async function startLocationTracking(
     },
     (raw) => {
       try {
-        const lat = raw?.coords?.latitude;
-        const lon = raw?.coords?.longitude;
-        const acc = raw?.coords?.accuracy;
-        if (
-          typeof lat !== 'number' ||
-          typeof lon !== 'number' ||
-          typeof acc !== 'number' ||
-          !Number.isFinite(lat) ||
-          !Number.isFinite(lon)
-        ) {
-          return;
-        }
-        const point: GeoPoint = {
-          latitude: lat,
-          longitude: lon,
-          accuracy: Math.max(acc, 1),
-        };
-        lastSnapshot = point;
-        onLocation(point);
+        handleRawLocation(raw);
       } catch (err) {
         onError?.(err instanceof Error ? err : new Error(String(err)));
       }

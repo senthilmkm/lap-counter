@@ -1,7 +1,9 @@
 import { StatusBar } from 'expo-status-bar';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import {
   Alert,
+  Animated,
+  Easing,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -29,12 +31,47 @@ export default function App() {
     stop,
     reset,
     defaultConfig,
+    sessionStartTs,
+    sessionEndTs,
+    elapsedSeconds,
   } = useLapCounter();
 
   const [targetInput, setTargetInput] = useState(
     String(defaultConfig.targetLaps)
   );
   const [showDebug, setShowDebug] = useState(false);
+  const [disableBle, setDisableBle] = useState(true); // Default to true (Sensors-Only BLE-Free mode)
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
+
+  // Track phase/lap transitions and keep history log
+  const interval10s = Math.floor(elapsedSeconds / 10);
+  useEffect(() => {
+    if (state.phase === 'idle') {
+      setDebugLogs([]);
+      return;
+    }
+    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+    let msg = `Phase: ${state.phase} | Count: ${state.count}`;
+    if (mode === 'indoor') {
+      const s = state as DetectorState;
+      if (s.lastMagneticDelta !== undefined) {
+        msg += ` | MagΔ: ${s.lastMagneticDelta.toFixed(2)} uT | Disp: ${s.lastDisplacementMagnitude.toFixed(2)} m`;
+      }
+    } else {
+      const s = state as OutdoorDetectorState;
+      if (s.lastDistanceM !== undefined) {
+        msg += ` | Dist: ${s.lastDistanceM.toFixed(1)} m | Acc: ${Number.isFinite(s.lastAccuracyM) ? s.lastAccuracyM.toFixed(1) : '—'} m`;
+      }
+    }
+    const fullMsg = `[${time}] ${msg}`;
+    setDebugLogs(prev => {
+      // Avoid duplicate messages with same details
+      if (prev.length > 0 && prev[0].substring(11) === fullMsg.substring(11)) {
+        return prev;
+      }
+      return [fullMsg, ...prev].slice(0, 15); // increased limit to 15 logs for more visibility
+    });
+  }, [state.phase, state.count, mode, interval10s]);
 
   const target = state.config.targetLaps;
   const isSetup = state.phase === 'idle';
@@ -52,8 +89,41 @@ export default function App() {
       Alert.alert('Invalid lap count', 'Please enter a positive whole number.');
       return;
     }
-    await start({ mode, targetLaps: parsed });
+    await start({ mode, targetLaps: parsed, disableBle });
   };
+
+  const confirmStop = () => {
+    Alert.alert(
+      'Active Session',
+      'You have an active walking session. Are you sure you want to stop?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Confirm', style: 'destructive', onPress: stop },
+      ]
+    );
+  };
+
+  const confirmReset = () => {
+    Alert.alert(
+      'Active Session',
+      'You have an active walking session. Are you sure you want to reset?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Confirm', style: 'destructive', onPress: reset },
+      ]
+    );
+  };
+
+  // Trigger alert once user completes all laps
+  useEffect(() => {
+    if (isFinished) {
+      Alert.alert(
+        '🎉 Session Complete!',
+        `Congratulations! You completed all ${state.count} of ${target} laps. Nice work!`,
+        [{ text: 'Great!' }]
+      );
+    }
+  }, [isFinished, target, state.count]);
 
   return (
     <SafeAreaProvider>
@@ -76,6 +146,8 @@ export default function App() {
                 targetInput={targetInput}
                 onChange={setTargetInput}
                 onStart={onStart}
+                disableBle={disableBle}
+                onDisableBleChange={setDisableBle}
               />
             )}
 
@@ -86,13 +158,22 @@ export default function App() {
                 target={target}
                 status={status}
                 progressPct={progressPct}
-                onStop={stop}
-                onReset={reset}
+                onStop={confirmStop}
+                onReset={confirmReset}
+                startTs={sessionStartTs}
+                elapsedSeconds={elapsedSeconds}
               />
             )}
 
             {isFinished && (
-              <FinishedCard count={state.count} target={target} onReset={reset} />
+              <FinishedCard
+                count={state.count}
+                target={target}
+                onReset={reset}
+                startTs={sessionStartTs}
+                endTs={sessionEndTs}
+                elapsedSeconds={elapsedSeconds}
+              />
             )}
 
             {error && (
@@ -112,9 +193,9 @@ export default function App() {
 
             {showDebug &&
               (mode === 'indoor' ? (
-                <IndoorDebugPanel state={state as DetectorState} />
+                <IndoorDebugPanel state={state as DetectorState} logs={debugLogs} />
               ) : (
-                <OutdoorDebugPanel state={state as OutdoorDetectorState} />
+                <OutdoorDebugPanel state={state as OutdoorDetectorState} logs={debugLogs} />
               ))}
           </ScrollView>
         </KeyboardAvoidingView>
@@ -194,10 +275,23 @@ function SetupCard(props: {
   targetInput: string;
   onChange: (v: string) => void;
   onStart: () => void;
+  disableBle: boolean;
+  onDisableBleChange: (v: boolean) => void;
 }) {
   return (
     <View style={styles.card}>
       <ModePicker mode={props.mode} onChange={props.onModeChange} />
+
+      {props.mode === 'indoor' && (
+        <View style={styles.toggleRow}>
+          <Text style={styles.toggleLabel}>Use BLE Beacons (optional)</Text>
+          <Switch
+            value={!props.disableBle}
+            onValueChange={(val) => props.onDisableBleChange(!val)}
+            trackColor={{ true: '#10b981', false: '#374151' }}
+          />
+        </View>
+      )}
 
       <Text style={styles.cardTitle}>How many laps do you want?</Text>
       <TextInput
@@ -220,11 +314,33 @@ function SetupCard(props: {
       </Pressable>
       <Text style={styles.helpText}>
         {props.mode === 'indoor'
-          ? 'Stand at your starting point before tapping Start. The app calibrates for ~5 seconds, then counts laps using ambient Bluetooth + magnetic field.'
+          ? props.disableBle
+            ? 'Stand at your starting point before tapping Start. The app calibrates for ~5 seconds, then counts laps using your device\'s magnetometer, gyroscope, and step count (no external hardware needed).'
+            : 'Stand at your starting point before tapping Start. The app calibrates for ~5 seconds, then counts laps using nearby BLE beacons + magnetic field.'
           : 'Stand at your starting point before tapping Start. The app locks onto GPS for ~8 seconds, then counts laps each time you return within 15 m of the start.'}
       </Text>
     </View>
   );
+}
+
+function formatLocalTime(ts: number | null): string {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  let hours = d.getHours();
+  const minutes = d.getMinutes();
+  const ampm = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12;
+  hours = hours ? hours : 12; // the hour '0' should be '12'
+  const minutesStr = minutes < 10 ? '0' + minutes : minutes;
+  return `${hours}:${minutesStr} ${ampm}`;
+}
+
+function formatDuration(totalSeconds: number): string {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  const mStr = minutes < 10 ? '0' + minutes : minutes;
+  const sStr = seconds < 10 ? '0' + seconds : seconds;
+  return `${mStr}:${sStr}`;
 }
 
 function RunningCard(props: {
@@ -235,7 +351,40 @@ function RunningCard(props: {
   progressPct: number;
   onStop: () => void;
   onReset: () => void;
+  startTs: number | null;
+  elapsedSeconds: number;
 }) {
+  const walkAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(walkAnim, {
+          toValue: 1,
+          duration: 1200,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        }),
+        Animated.timing(walkAnim, {
+          toValue: 0,
+          duration: 1200,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  }, [walkAnim]);
+
+  const walkTranslateX = walkAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-25, 25],
+  });
+
+  const walkRotate = walkAnim.interpolate({
+    inputRange: [0, 0.5, 1],
+    outputRange: ['-10deg', '10deg', '-10deg'],
+  });
+
   return (
     <View style={styles.card}>
       <Text style={styles.modeBadge}>
@@ -260,6 +409,28 @@ function RunningCard(props: {
       <Text style={styles.progressLabel}>
         {Math.round(props.progressPct * 100)}%
       </Text>
+
+      <View style={styles.statsRow}>
+        <View style={styles.statBox}>
+          <Text style={styles.statLabel}>Start Time</Text>
+          <Text style={styles.statValue}>{formatLocalTime(props.startTs)}</Text>
+        </View>
+        <View style={styles.statBox}>
+          <Text style={styles.statLabel}>Time Elapsed</Text>
+          <Text style={styles.statValue}>{formatDuration(props.elapsedSeconds)}</Text>
+        </View>
+      </View>
+
+      <View style={styles.animationContainer}>
+        <Animated.Text
+          style={[
+            styles.walkingIcon,
+            { transform: [{ translateX: walkTranslateX }, { rotate: walkRotate }] },
+          ]}
+        >
+          🚶
+        </Animated.Text>
+      </View>
 
       <Text style={styles.statusText}>{props.status}</Text>
 
@@ -291,6 +462,9 @@ function FinishedCard(props: {
   count: number;
   target: number;
   onReset: () => void;
+  startTs: number | null;
+  endTs: number | null;
+  elapsedSeconds: number;
 }) {
   return (
     <View style={styles.card}>
@@ -307,6 +481,21 @@ function FinishedCard(props: {
       </View>
       <Text style={styles.progressLabel}>100%</Text>
 
+      <View style={styles.summaryTable}>
+        <View style={styles.summaryRow}>
+          <Text style={styles.summaryLabel}>Start Time</Text>
+          <Text style={styles.summaryValue}>{formatLocalTime(props.startTs)}</Text>
+        </View>
+        <View style={styles.summaryRow}>
+          <Text style={styles.summaryLabel}>End Time</Text>
+          <Text style={styles.summaryValue}>{formatLocalTime(props.endTs)}</Text>
+        </View>
+        <View style={styles.summaryRow}>
+          <Text style={styles.summaryLabel}>Total Duration</Text>
+          <Text style={styles.summaryValue}>{formatDuration(props.elapsedSeconds)}</Text>
+        </View>
+      </View>
+
       <Pressable
         onPress={props.onReset}
         style={({ pressed }) => [
@@ -320,28 +509,47 @@ function FinishedCard(props: {
   );
 }
 
-function IndoorDebugPanel({ state }: { state: DetectorState }) {
+function IndoorDebugPanel({ state, logs }: { state: DetectorState; logs: string[] }) {
+  const modeText = state.isBleFree ? 'Indoor (MIF BLE-Free Mode)' : 'Indoor (Standard)';
+  const gyroYawDeg = state.lastGyroYaw !== undefined ? (state.lastGyroYaw * 180) / Math.PI : 0;
   return (
     <View style={styles.debugPanel}>
       <Text style={styles.debugHeader}>Debug · Indoor</Text>
+      <DebugRow label="MIF mode" value={modeText} />
       <DebugRow label="phase" value={state.phase} />
       <DebugRow
         label="BLE similarity"
-        value={`${state.lastSimilarity.toFixed(3)}  (≥ ${state.config.similarityNearThreshold})`}
+        value={state.isBleFree ? '— (BLE-Free)' : `${state.lastSimilarity.toFixed(3)}  (≥ ${state.config.similarityNearThreshold})`}
       />
       <DebugRow
         label="Magnetic Δ (μT)"
-        value={`${state.lastMagneticDelta.toFixed(2)}  (≤ ${state.config.magneticDeltaThreshold})`}
+        value={`${state.lastMagneticDelta.toFixed(2)}  (≤ ${state.isBleFree ? '15.00' : state.config.magneticDeltaThreshold.toFixed(2)})`}
       />
       <DebugRow
         label="Displacement (m)"
-        value={`${state.lastDisplacementMagnitude.toFixed(2)}  (≤ ${state.config.displacementThreshold})`}
+        value={`${state.lastDisplacementMagnitude.toFixed(2)}  (≤ ${(state.lastDisplacementThreshold ?? (state.isBleFree ? 10.00 : state.config.displacementThreshold)).toFixed(2)})`}
       />
+      <DebugRow
+        label="Gyro Z-Rate"
+        value={state.lastGyroZRate !== undefined ? `${state.lastGyroZRate.toFixed(3)} rad/s` : '0.000 rad/s'}
+      />
+      <DebugRow
+        label="Gyro Yaw"
+        value={`${gyroYawDeg.toFixed(1)}°`}
+      />
+      {logs.length > 0 && (
+        <View style={styles.logsBox}>
+          <Text style={styles.debugHeader}>Session History Log</Text>
+          {logs.map((log, idx) => (
+            <Text key={idx} style={styles.logText}>{log}</Text>
+          ))}
+        </View>
+      )}
     </View>
   );
 }
 
-function OutdoorDebugPanel({ state }: { state: OutdoorDetectorState }) {
+function OutdoorDebugPanel({ state, logs }: { state: OutdoorDetectorState; logs: string[] }) {
   return (
     <View style={styles.debugPanel}>
       <Text style={styles.debugHeader}>Debug · Outdoor</Text>
@@ -365,6 +573,14 @@ function OutdoorDebugPanel({ state }: { state: OutdoorDetectorState }) {
           label="point A"
           value={`${state.pointA.latitude.toFixed(5)}, ${state.pointA.longitude.toFixed(5)}`}
         />
+      )}
+      {logs.length > 0 && (
+        <View style={styles.logsBox}>
+          <Text style={styles.debugHeader}>Session History Log</Text>
+          {logs.map((log, idx) => (
+            <Text key={idx} style={styles.logText}>{log}</Text>
+          ))}
+        </View>
       )}
     </View>
   );
@@ -645,6 +861,90 @@ const styles = StyleSheet.create({
   debugValue: {
     color: '#e2e8f0',
     fontSize: 13,
+    fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }),
+  },
+  statsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    backgroundColor: '#0f172a',
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 8,
+  },
+  statBox: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  statLabel: {
+    color: '#64748b',
+    fontSize: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  statValue: {
+    color: '#f8fafc',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  summaryTable: {
+    backgroundColor: '#0f172a',
+    borderRadius: 12,
+    padding: 16,
+    gap: 12,
+    width: '100%',
+    marginVertical: 8,
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  summaryLabel: {
+    color: '#94a3b8',
+    fontSize: 14,
+  },
+  summaryValue: {
+    color: '#fbbf24',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  animationContainer: {
+    height: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginVertical: 12,
+    backgroundColor: '#0f172a',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#334155',
+    overflow: 'hidden',
+  },
+  walkingIcon: {
+    fontSize: 28,
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginVertical: 12,
+    paddingHorizontal: 4,
+  },
+  toggleLabel: {
+    color: '#cbd5e1',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  logsBox: {
+    marginTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#1e293b',
+    paddingTop: 8,
+    gap: 4,
+  },
+  logText: {
+    color: '#94a3b8',
+    fontSize: 10,
     fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }),
   },
 });

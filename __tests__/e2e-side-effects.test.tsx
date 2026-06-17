@@ -184,7 +184,7 @@ describe('e2e side effects: useLapCounter hook with mocked native modules', () =
 
     const calls = HapticsMock.__getHapticCalls();
     const lapImpacts = calls.filter(
-      (c) => c.kind === 'impact' && c.arg === Haptics.ImpactFeedbackStyle.Medium
+      (c) => c.kind === 'impact' && c.arg === Haptics.ImpactFeedbackStyle.Heavy
     );
     const successHaptics = calls.filter(
       (c) =>
@@ -192,8 +192,8 @@ describe('e2e side effects: useLapCounter hook with mocked native modules', () =
         c.arg === Haptics.NotificationFeedbackType.Success
     );
 
-    // One lap haptic per lap.
-    expect(lapImpacts.length).toBe(TARGET);
+    // Two lap haptics per lap (double heavy impact).
+    expect(lapImpacts.length).toBe(TARGET * 2);
     // Exactly one success haptic when target is reached.
     expect(successHaptics.length).toBe(1);
 
