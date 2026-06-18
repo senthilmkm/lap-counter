@@ -4,6 +4,7 @@ import {
   Alert,
   Animated,
   Easing,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -174,7 +175,11 @@ export default function App() {
 
   const [activeTab, setActiveTab] = useState<'workout' | 'history' | 'analytics' | 'settings'>('workout');
   const [showPaywall, setShowPaywall] = useState(false);
-  const [targetInput, setTargetInput] = useState(() => getSettingSync('targetLaps', String(defaultConfig.targetLaps)));
+  const [targetInput, setTargetInput] = useState(() => {
+    const saved = getSettingSync('targetLaps', '');
+    if (saved) return saved;
+    return isPremium ? String(defaultConfig.targetLaps) : '3';
+  });
   const [disableBle, setDisableBle] = useState(() => getSettingSync('disableBle', 'true') === 'true');
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
   
@@ -502,6 +507,12 @@ export default function App() {
       return;
     }
 
+    // Gating check: Restrict outdoor mode entirely if gpsModePremiumGated is enabled
+    if (!isPremium && pricingConfig.features.paywallEnabled && mode === 'outdoor' && pricingConfig.features.gpsModePremiumGated) {
+      setShowPaywall(true);
+      return;
+    }
+
     const isTesting = typeof process !== 'undefined' && process.env.NODE_ENV === 'test';
     if (mode === 'outdoor' && !prewarmLocation && !isTesting) {
       Alert.alert(
@@ -512,14 +523,28 @@ export default function App() {
           {
             text: 'Start Anyway',
             onPress: async () => {
-              await start({ mode, targetLaps: parsed, disableBle, isPremium, voiceCuesEnabled });
+              await start({ 
+                mode, 
+                targetLaps: parsed, 
+                disableBle, 
+                isPremium, 
+                voiceCuesEnabled, 
+                gpsModePremiumGated: pricingConfig.features.gpsModePremiumGated 
+              });
             },
           },
         ]
       );
       return;
     }
-    await start({ mode, targetLaps: parsed, disableBle, isPremium, voiceCuesEnabled });
+    await start({ 
+      mode, 
+      targetLaps: parsed, 
+      disableBle, 
+      isPremium, 
+      voiceCuesEnabled, 
+      gpsModePremiumGated: pricingConfig.features.gpsModePremiumGated 
+    });
   };
 
   const confirmStop = () => {
@@ -1989,7 +2014,7 @@ function OnboardingWizard(props: {
       visible={props.visible}
       onRequestClose={() => {}}
     >
-      <View style={styles.onboardingOverlay}>
+      <Pressable style={styles.onboardingOverlay} onPress={Keyboard.dismiss}>
         <View style={styles.onboardingCard}>
           {/* Step dots */}
           <View style={styles.onboardingDots}>
@@ -2083,7 +2108,7 @@ Let’s set up your profile in 2 quick steps.
             </View>
           )}
         </View>
-      </View>
+      </Pressable>
     </Modal>
   );
 }

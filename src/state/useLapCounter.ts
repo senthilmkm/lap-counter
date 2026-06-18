@@ -315,7 +315,7 @@ export function useLapCounter() {
   }, [activeState.phase]);
 
   const start = useCallback(
-    async (config?: StartConfig & { isPremium?: boolean }) => {
+    async (config?: StartConfig & { isPremium?: boolean; gpsModePremiumGated?: boolean }) => {
       if (startingRef.current) return;
       startingRef.current = true;
       errorRef.current = null;
@@ -335,9 +335,10 @@ export function useLapCounter() {
 
       const isTesting = typeof process !== 'undefined' && process.env.NODE_ENV === 'test';
       const isPremium = config?.isPremium ?? isTesting;
+      const gpsModePremiumGated = config?.gpsModePremiumGated ?? false;
 
-      // Subscription check: block Outdoor GPS mode start for Free tier
-      if (!isPremium && requestedMode === 'outdoor') {
+      // Subscription check: block Outdoor GPS mode start for Free tier if gated
+      if (!isPremium && requestedMode === 'outdoor' && gpsModePremiumGated) {
         errorRef.current = { message: 'Outdoor GPS mode requires a Premium subscription.' };
         startingRef.current = false;
         return;

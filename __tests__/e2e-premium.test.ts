@@ -12,16 +12,34 @@ describe('E2E Premium and Subscription Features', () => {
     jest.useRealTimers();
   });
 
-  it('restricts outdoor GPS mode for Free tier users', async () => {
+  it('restricts outdoor GPS mode for Free tier users when gpsModePremiumGated is enabled', async () => {
     const { result } = renderHook(() => useLapCounter());
 
-    // Try starting Outdoor workout with isPremium = false
+    // Try starting Outdoor workout with isPremium = false and gpsModePremiumGated = true
     await act(async () => {
-      await result.current.start({ mode: 'outdoor', isPremium: false });
+      await result.current.start({ mode: 'outdoor', isPremium: false, gpsModePremiumGated: true });
     });
 
     expect(result.current.error?.message).toMatch(/requires a Premium subscription/i);
     expect(result.current.state.phase).toBe('idle');
+  });
+
+  it('allows outdoor GPS mode for Free tier users (3-lap trial) when gpsModePremiumGated is disabled', async () => {
+    const { result } = renderHook(() => useLapCounter());
+
+    // Start Outdoor workout with isPremium = false and gpsModePremiumGated = false
+    await act(async () => {
+      await result.current.start({ mode: 'outdoor', isPremium: false, gpsModePremiumGated: false });
+    });
+
+    expect(result.current.error).toBeNull();
+    expect(result.current.state.phase).not.toBe('idle');
+    expect(result.current.state.config.targetLaps).toBe(3); // should be clamped from default 10 to 3
+
+    // Teardown
+    await act(async () => {
+      await result.current.reset();
+    });
   });
 
   it('allows outdoor GPS mode for Premium tier users', async () => {
