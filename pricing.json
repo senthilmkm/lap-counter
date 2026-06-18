@@ -28,14 +28,14 @@
   "tiers": {
     "monthly": {
       "enabled": true,
-      "productId": "goog_placeholder_monthly_product",
+      "productId": "orbit_pro_monthly",
       "priceLabel": "$4.99/mo",
       "priceValue": 4.99,
       "savePercentageLabel": ""
     },
     "annual": {
       "enabled": true,
-      "productId": "goog_placeholder_annual_product",
+      "productId": "orbit_pro_yearly",
       "priceLabel": "$29.99/yr",
       "priceValue": 29.99,
       "savePercentageLabel": "Save 50%!"
