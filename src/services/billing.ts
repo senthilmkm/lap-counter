@@ -47,6 +47,29 @@ export async function isUserPremium(): Promise<boolean> {
 }
 
 /**
+ * Queries the active subscription tier (free, monthly, or annual).
+ */
+export async function getActiveSubscriptionTier(): Promise<'free' | 'monthly' | 'annual'> {
+  try {
+    await initBilling();
+    const customerInfo = await Purchases.getCustomerInfo();
+    const entitlement = customerInfo.entitlements.active[ENTITLEMENT_PREMIUM];
+    if (!entitlement) return 'free';
+    const prodId = entitlement.productIdentifier.toLowerCase();
+    if (prodId.includes('annual') || prodId.includes('year') || prodId.includes('yr')) {
+      return 'annual';
+    }
+    if (prodId.includes('monthly') || prodId.includes('month') || prodId.includes('mo')) {
+      return 'monthly';
+    }
+    return 'monthly';
+  } catch (error) {
+    console.warn('Failed to query subscription tier:', error);
+    return 'free';
+  }
+}
+
+/**
  * Retrieves available purchase packages (Monthly, Annual).
  */
 export async function getSubscriptionPackages(): Promise<PurchasesPackage[]> {

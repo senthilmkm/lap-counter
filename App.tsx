@@ -98,8 +98,36 @@ export default function App() {
   const sub = useSubscription();
   const isTesting = typeof process !== 'undefined' && process.env.NODE_ENV === 'test';
   const [debugSubTier, setDebugSubTier] = useState<'free' | 'monthly' | 'annual'>('free');
-  const isPremium = sub.isPremium || isTesting || debugSubTier === 'monthly' || debugSubTier === 'annual';
+  const subTier = debugSubTier !== 'free' ? debugSubTier : sub.subTier;
+  const isPremium = subTier === 'monthly' || subTier === 'annual' || isTesting;
   const { buyPackage, restore } = sub;
+
+  const handlePurchase = async (type: 'monthly' | 'annual') => {
+    const pkg = sub.packages.find(p => {
+      const pId = p.identifier?.toLowerCase() || '';
+      const pType = p.packageType?.toString() || '';
+      if (type === 'monthly') {
+        return pType === 'MONTHLY' || pId.includes('monthly');
+      } else {
+        return pType === 'ANNUAL' || pId.includes('annual');
+      }
+    });
+
+    if (pkg) {
+      const success = await sub.buyPackage(pkg);
+      if (success) {
+        setShowPaywall(false);
+        Alert.alert('Welcome to Premium!', 'Subscription activated successfully. Thank you!');
+      } else {
+        Alert.alert('Purchase Failed', 'Unable to complete purchase. Please try again.');
+      }
+    } else {
+      sub.setSubTier(type);
+      sub.setIsPremium(true);
+      setShowPaywall(false);
+      Alert.alert('Welcome to Premium!', `Subscription activated successfully (${type} simulation/sandbox mode). Thank you!`);
+    }
+  };
 
   const [pricingConfig, setPricingConfig] = useState(localPricingConfig);
 
@@ -441,13 +469,13 @@ export default function App() {
     }
     
     // Gating check: Block Outdoor GPS tracking mode start for Free tier
-    if (mode === 'outdoor' && !isPremium) {
+    if (mode === 'outdoor' && pricingConfig.features.gpsModePremiumGated && !isPremium) {
       setShowPaywall(true);
       return;
     }
 
-    // Gating check: Restrict target laps to max 3 for Free tier users (indoor mode)
-    if (!isPremium && parsed > 3 && mode === 'indoor') {
+    // Gating check: Restrict target laps to max limits for Free tier users (indoor mode)
+    if (!isPremium && pricingConfig.features.paywallEnabled && parsed > pricingConfig.features.maxFreeIndoorLaps && mode === 'indoor') {
       setShowPaywall(true);
       return;
     }
@@ -559,6 +587,18 @@ export default function App() {
                 </View>
               )}
 
+              {subTier === 'monthly' && pricingConfig.announcements.premiumMonthly.show && (
+                <View style={[styles.announcementBanner, { backgroundColor: '#3b82f6' }]}>
+                  <Text style={styles.announcementText}>✨ {pricingConfig.announcements.premiumMonthly.message}</Text>
+                </View>
+              )}
+
+              {subTier === 'annual' && pricingConfig.announcements.premiumAnnual.show && (
+                <View style={[styles.announcementBanner, { backgroundColor: '#10b981' }]}>
+                  <Text style={styles.announcementText}>👑 {pricingConfig.announcements.premiumAnnual.message}</Text>
+                </View>
+              )}
+
               {isSetup && (
                 <SetupCard
                   mode={mode}
@@ -584,6 +624,7 @@ export default function App() {
                   weightUnit={weightUnit}
                   onWeightUnitChange={handleWeightUnitChange}
                   onShowInfoModal={() => setShowInfoModal(true)}
+                  maxFreeIndoorLaps={pricingConfig.features.maxFreeIndoorLaps}
                 />
               )}
 
@@ -667,6 +708,7 @@ export default function App() {
                       onPress={() => {
                         setDebugSubTier('free');
                         sub.setIsPremium(false);
+                        sub.setSubTier('free');
                       }}
                       style={[styles.debugSubBtn, debugSubTier === 'free' && styles.debugSubBtnActive]}
                     >
@@ -676,6 +718,7 @@ export default function App() {
                       onPress={() => {
                         setDebugSubTier('monthly');
                         sub.setIsPremium(true);
+                        sub.setSubTier('monthly');
                       }}
                       style={[styles.debugSubBtn, debugSubTier === 'monthly' && styles.debugSubBtnActive]}
                     >
@@ -685,6 +728,7 @@ export default function App() {
                       onPress={() => {
                         setDebugSubTier('annual');
                         sub.setIsPremium(true);
+                        sub.setSubTier('annual');
                       }}
                       style={[styles.debugSubBtn, debugSubTier === 'annual' && styles.debugSubBtnActive]}
                     >
@@ -881,12 +925,7 @@ export default function App() {
 
                 {pricingConfig.tiers.annual.enabled && (
                   <Pressable
-                    onPress={async () => {
-                      // Simulated purchase for demo/tests
-                      sub.setIsPremium(true);
-                      setShowPaywall(false);
-                      Alert.alert('Welcome to Premium!', 'Subscription activated successfully. Thank you!');
-                    }}
+                    onPress={() => handlePurchase('annual')}
                     style={styles.modalBuyBtn}
                   >
                     <Text style={styles.modalBuyBtnText}>Subscribe Annual: {pricingConfig.tiers.annual.priceLabel} {pricingConfig.tiers.annual.savePercentageLabel}</Text>
@@ -895,11 +934,7 @@ export default function App() {
                 
                 {pricingConfig.tiers.monthly.enabled && (
                   <Pressable
-                    onPress={async () => {
-                      sub.setIsPremium(true);
-                      setShowPaywall(false);
-                      Alert.alert('Welcome to Premium!', 'Subscription activated successfully. Thank you!');
-                    }}
+                    onPress={() => handlePurchase('monthly')}
                     style={[styles.modalBuyBtn, { backgroundColor: '#3b82f6', marginTop: 8 }]}
                   >
                     <Text style={styles.modalBuyBtnText}>Subscribe Monthly: {pricingConfig.tiers.monthly.priceLabel}</Text>
@@ -907,7 +942,18 @@ export default function App() {
                 )}
 
                 <View style={styles.modalRowButtons}>
-                  <Pressable onPress={() => sub.restore()} style={styles.modalRestoreBtn}>
+                  <Pressable
+                    onPress={async () => {
+                      const success = await sub.restore();
+                      if (success) {
+                        setShowPaywall(false);
+                        Alert.alert('Success', 'Purchases restored successfully!');
+                      } else {
+                        Alert.alert('Restore Failed', 'No active purchases found to restore.');
+                      }
+                    }}
+                    style={styles.modalRestoreBtn}
+                  >
                     <Text style={styles.modalRestoreBtnText}>Restore Purchases</Text>
                   </Pressable>
                   <Pressable onPress={() => setShowPaywall(false)} style={styles.modalCloseBtn}>
@@ -1022,16 +1068,28 @@ export default function App() {
                     </View>
                   </View>
 
-                  <View style={styles.modalActionExportRow}>
-                    <Pressable onPress={() => handleExportCSV(selectedWorkout)} style={styles.exportItemBtn}>
-                      <Text style={styles.exportItemBtnText}>CSV Export</Text>
-                    </Pressable>
-                    {selectedWorkout.mode === 'outdoor' && (
-                      <Pressable onPress={() => handleExportGPX(selectedWorkout)} style={[styles.exportItemBtn, { backgroundColor: '#8b5cf6' }]}>
-                        <Text style={styles.exportItemBtnText}>GPX Export</Text>
+                  {isPremium ? (
+                    <View style={styles.modalActionExportRow}>
+                      <Pressable onPress={() => handleExportCSV(selectedWorkout)} style={styles.exportItemBtn}>
+                        <Text style={styles.exportItemBtnText}>CSV Export</Text>
                       </Pressable>
-                    )}
-                  </View>
+                      {selectedWorkout.mode === 'outdoor' && (
+                        <Pressable onPress={() => handleExportGPX(selectedWorkout)} style={[styles.exportItemBtn, { backgroundColor: '#8b5cf6' }]}>
+                          <Text style={styles.exportItemBtnText}>GPX Export</Text>
+                        </Pressable>
+                      )}
+                    </View>
+                  ) : (
+                    <Pressable
+                      onPress={() => {
+                        setSelectedWorkout(null);
+                        setShowPaywall(true);
+                      }}
+                      style={[styles.completedPaywallBtn, { marginTop: 12, width: '100%' }]}
+                    >
+                      <Text style={styles.completedPaywallText}>👑 Upgrade to Export GPX/CSV</Text>
+                    </Pressable>
+                  )}
 
                   <Pressable onPress={() => setSelectedWorkout(null)} style={[styles.primaryButton, { width: '100%', marginTop: 16 }]}>
                     <Text style={styles.primaryButtonText}>Close Summary</Text>
@@ -1050,6 +1108,8 @@ export default function App() {
 function ModePicker(props: {
   mode: LapMode;
   onChange: (mode: LapMode) => void;
+  isPremium: boolean;
+  onShowPaywall: () => void;
 }) {
   return (
     <View>
@@ -1062,10 +1122,16 @@ function ModePicker(props: {
           onPress={() => props.onChange('indoor')}
         />
         <ModeOption
-          label="Outdoor"
+          label={props.isPremium ? "Outdoor" : "Outdoor 👑"}
           hint="GPS"
           selected={props.mode === 'outdoor'}
-          onPress={() => props.onChange('outdoor')}
+          onPress={() => {
+            if (!props.isPremium) {
+              props.onShowPaywall();
+            } else {
+              props.onChange('outdoor');
+            }
+          }}
         />
       </View>
     </View>
@@ -1133,6 +1199,7 @@ function SetupCard(props: {
   weightUnit: 'lbs' | 'kg';
   onWeightUnitChange: (v: 'lbs' | 'kg') => void;
   onShowInfoModal: () => void;
+  maxFreeIndoorLaps: number;
 }) {
   let gpsStatusComponent = null;
   if (props.mode === 'outdoor') {
@@ -1184,7 +1251,12 @@ function SetupCard(props: {
       {/* SECTION 1: GOAL SETUP */}
       <View style={styles.setupSection}>
         <Text style={styles.setupSectionTitle}>1. Workout Goal</Text>
-        <ModePicker mode={props.mode} onChange={props.onModeChange} />
+        <ModePicker
+          mode={props.mode}
+          onChange={props.onModeChange}
+          isPremium={props.isPremium}
+          onShowPaywall={props.onShowPaywall}
+        />
         
         <Text style={styles.setupFieldLabel}>How many laps do you want?</Text>
         <TextInput
@@ -1198,7 +1270,7 @@ function SetupCard(props: {
           maxLength={4}
         />
         {!props.isPremium && props.mode === 'indoor' && (
-          <Text style={styles.clampedDisclaimer}>⚠️ Laps capped at 3 on the free tier. Subscribe to count unlimited.</Text>
+          <Text style={styles.clampedDisclaimer}>⚠️ Laps capped at {props.maxFreeIndoorLaps} on the free tier. Subscribe to count unlimited.</Text>
         )}
       </View>
 

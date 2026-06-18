@@ -3,6 +3,7 @@ import { AppState, AppStateStatus } from 'react-native';
 import { PurchasesPackage } from 'react-native-purchases';
 import {
   isUserPremium,
+  getActiveSubscriptionTier,
   getSubscriptionPackages,
   purchaseSubscription,
   restorePurchases,
@@ -12,16 +13,18 @@ import { triggerSuccessHaptic, triggerFailureHaptic } from '../services/haptics'
 
 export function useSubscription() {
   const [isPremium, setIsPremium] = useState<boolean>(false);
+  const [subTier, setSubTier] = useState<'free' | 'monthly' | 'annual'>('free');
   const [packages, setPackages] = useState<PurchasesPackage[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
 
   const checkEntitlements = useCallback(async () => {
     try {
-      const premiumActive = await isUserPremium();
-      setIsPremium(premiumActive);
+      const activeTier = await getActiveSubscriptionTier();
+      setSubTier(activeTier);
+      setIsPremium(activeTier !== 'free');
       
       // Load packages if they haven't been fetched yet
-      if (premiumActive === false && packages.length === 0) {
+      if (activeTier === 'free' && packages.length === 0) {
         const available = await getSubscriptionPackages();
         setPackages(available);
       }
@@ -56,7 +59,9 @@ export function useSubscription() {
     setLoading(true);
     const success = await purchaseSubscription(pkg);
     if (success) {
-      setIsPremium(true);
+      const activeTier = await getActiveSubscriptionTier();
+      setSubTier(activeTier);
+      setIsPremium(activeTier !== 'free');
       triggerSuccessHaptic();
     } else {
       triggerFailureHaptic();
@@ -69,7 +74,9 @@ export function useSubscription() {
     setLoading(true);
     const success = await restorePurchases();
     if (success) {
-      setIsPremium(true);
+      const activeTier = await getActiveSubscriptionTier();
+      setSubTier(activeTier);
+      setIsPremium(activeTier !== 'free');
       triggerSuccessHaptic();
     } else {
       triggerFailureHaptic();
@@ -80,6 +87,7 @@ export function useSubscription() {
 
   return {
     isPremium,
+    subTier,
     packages,
     loading,
     refreshSubscription: checkEntitlements,
@@ -87,6 +95,7 @@ export function useSubscription() {
     restore,
     // Provide a setter for local tests/simulations so the user can easily toggle premium mode
     setIsPremium,
+    setSubTier,
   };
 }
 export type SubscriptionState = ReturnType<typeof useSubscription>;

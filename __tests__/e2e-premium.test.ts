@@ -1,5 +1,6 @@
 import { act, renderHook } from '@testing-library/react-native';
 import { useLapCounter } from '../src/state/useLapCounter';
+import { useSubscription } from '../src/state/useSubscription';
 import { generateGPX, generateCSV, ExporterPoint, ExporterLap } from '../src/services/exporter';
 
 describe('E2E Premium and Subscription Features', () => {
@@ -122,4 +123,39 @@ describe('E2E Premium and Subscription Features', () => {
     expect(csvOutput).toContain('1,62.4,95,91,0.12');
     expect(csvOutput).toContain('2,58.1,92,95,0.24');
   });
+
+  describe('Subscription Hook Transitions', () => {
+    it('handles transition changes between free, monthly, and annual states', async () => {
+      const { result } = renderHook(() => useSubscription());
+
+      // 1. Initial State should be free
+      expect(result.current.isPremium).toBe(false);
+      expect(result.current.subTier).toBe('free');
+
+      // 2. Transition to monthly simulation
+      act(() => {
+        result.current.setSubTier('monthly');
+        result.current.setIsPremium(true);
+      });
+      expect(result.current.isPremium).toBe(true);
+      expect(result.current.subTier).toBe('monthly');
+
+      // 3. Transition to annual simulation
+      act(() => {
+        result.current.setSubTier('annual');
+        result.current.setIsPremium(true);
+      });
+      expect(result.current.isPremium).toBe(true);
+      expect(result.current.subTier).toBe('annual');
+
+      // 4. Transition back to free
+      act(() => {
+        result.current.setSubTier('free');
+        result.current.setIsPremium(false);
+      });
+      expect(result.current.isPremium).toBe(false);
+      expect(result.current.subTier).toBe('free');
+    });
+  });
 });
+
