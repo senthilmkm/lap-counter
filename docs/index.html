@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="Orbit — Hands-free automatic lap counter for indoor gym tracks and outdoor runs. Fused sensor fusion engine, live GPS maps, and voice pacing splits.">
+  <meta name="theme-color" content="#080c14">
+  
+  <!-- Open Graph -->
+  <meta property="og:title" content="Orbit — Auto Lap Tracker">
+  <meta property="og:description" content="Stop counting laps in your head. Automatically track indoor gym loops and outdoor GPS runs hands-free.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://senthilmkm.github.io/lap-counter/">
+
+  <title>Orbit — Auto Lap Tracker</title>
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #080c14;
+      --bg-elev: rgba(13, 20, 35, 0.65);
+      --border: rgba(255, 255, 255, 0.06);
+      --border-hover: rgba(139, 92, 246, 0.35);
+      --text: #f8fafc;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      
+      --primary: #8b5cf6;
+      --primary-gradient: linear-gradient(135deg, #a78bfa 0%, #7c3aed 100%);
+      --cyan: #06b6d4;
+      --cyan-gradient: linear-gradient(135deg, #22d3ee 0%, #0891b2 100%);
+      --emerald: #10b981;
+      
+      --content-max: 1100px;
+      --content-text: 750px;
+      --transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #f8fafc;
+        --bg-elev: rgba(255, 255, 255, 0.8);
+        --border: rgba(0, 0, 0, 0.08);
+        --border-hover: rgba(139, 92, 246, 0.3);
+        --text: #0f172a;
+        --text-secondary: #475569;
+        --text-muted: #94a3b8;
+        --primary: #7c3aed;
+        --cyan: #0891b2;
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: 'Outfit', sans-serif;
+      line-height: 1.6;
+      overflow-x: hidden;
+      background-image: 
+        radial-gradient(circle at 15% 15%, rgba(139, 92, 246, 0.08) 0%, transparent 45%),
+        radial-gradient(circle at 85% 85%, rgba(6, 182, 212, 0.05) 0%, transparent 45%);
+      background-attachment: fixed;
+    }
+
+    /* Header & Navigation */
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: color-mix(in oklab, var(--bg) 80%, transparent);
+      backdrop-filter: saturate(180%) blur(20px);
+      -webkit-backdrop-filter: saturate(180%) blur(20px);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 24px;
+    }
+
+    .nav {
+      max-width: var(--content-max);
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 1.25rem;
+      color: var(--text);
+      text-decoration: none;
+      font-family: 'Space Grotesk', sans-serif;
+    }
+
+    .brand .logo-badge {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, var(--primary), var(--cyan));
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 1.1rem;
+      font-weight: 800;
+      box-shadow: 0 0 15px rgba(139, 92, 246, 0.3);
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 24px;
+      font-size: 0.95rem;
+      align-items: center;
+    }
+
+    .nav-links a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-weight: 500;
+      transition: var(--transition);
+    }
+
+    .nav-links a:hover {
+      color: var(--text);
+    }
+
+    .nav-links .download-btn {
+      background: var(--primary);
+      color: white;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-weight: 600;
+    }
+
+    .nav-links .download-btn:hover {
+      background: var(--cyan);
+      box-shadow: 0 0 12px rgba(6, 182, 212, 0.4);
+    }
+
+    /* Hero Section */
+    .hero {
+      padding: 100px 24px 80px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero-inner {
+      max-width: var(--content-text);
+      margin: 0 auto;
+      position: relative;
+      z-index: 10;
+    }
+
+    .eyebrow {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #c084fc;
+      background: rgba(139, 92, 246, 0.15);
+      border: 1px solid rgba(139, 92, 246, 0.25);
+      padding: 6px 16px;
+      border-radius: 999px;
+      margin-bottom: 24px;
+    }
+
+    h1 {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 4rem;
+      font-weight: 700;
+      letter-spacing: -0.04em;
+      line-height: 1.1;
+      margin-bottom: 24px;
+      background: linear-gradient(135deg, var(--text) 40%, var(--primary) 80%, var(--cyan) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .lede {
+      font-size: 1.25rem;
+      color: var(--text-secondary);
+      line-height: 1.5;
+      margin-bottom: 40px;
+      font-weight: 300;
+    }
+
+    .cta-buttons {
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-bottom: 48px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 14px 28px;
+      border-radius: 12px;
+      font-weight: 600;
+      font-size: 1rem;
+      text-decoration: none;
+      transition: var(--transition);
+      cursor: pointer;
+    }
+
+    .btn-primary {
+      background: var(--primary-gradient);
+      color: white;
+      box-shadow: 0 4px 25px rgba(139, 92, 246, 0.35);
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 30px rgba(139, 92, 246, 0.45);
+    }
+
+    .btn-secondary {
+      background: var(--bg-elev);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: var(--border-hover);
+      transform: translateY(-2px);
+    }
+
+    /* Core Features Grid */
+    .features-section {
+      max-width: var(--content-max);
+      margin: 0 auto;
+      padding: 80px 24px;
+    }
+
+    .section-header {
+      text-align: center;
+      margin-bottom: 60px;
+    }
+
+    .section-title {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 2.25rem;
+      font-weight: 700;
+      margin-bottom: 16px;
+      letter-spacing: -0.02em;
+    }
+
+    .section-subtitle {
+      color: var(--text-secondary);
+      font-size: 1.1rem;
+      font-weight: 300;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 30px;
+    }
+
+    .card {
+      background: var(--bg-elev);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 32px;
+      transition: var(--transition);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+
+    .card:hover {
+      transform: translateY(-5px);
+      border-color: var(--border-hover);
+      box-shadow: 0 15px 30px rgba(0, 0, 0, 0.3);
+    }
+
+    .card-icon {
+      font-size: 2rem;
+      margin-bottom: 20px;
+      display: inline-block;
+    }
+
+    .card-title {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 1.35rem;
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+
+    .card-text {
+      color: var(--text-secondary);
+      font-size: 0.95rem;
+      line-height: 1.6;
+      font-weight: 300;
+    }
+
+    /* Pricing Section */
+    .pricing-section {
+      max-width: var(--content-max);
+      margin: 0 auto;
+      padding: 80px 24px;
+    }
+
+    .pricing-container {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 30px;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
+    .pricing-card {
+      background: var(--bg-elev);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 40px;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .pricing-card.premium {
+      border: 2px solid var(--primary);
+      box-shadow: 0 10px 30px rgba(139, 92, 246, 0.15);
+    }
+
+    .badge-pop {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      background: var(--primary-gradient);
+      color: white;
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 4px 12px;
+      border-radius: 50px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .pricing-tier {
+      font-size: 1rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      margin-bottom: 8px;
+    }
+
+    .pricing-price {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 3rem;
+      font-weight: 700;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: baseline;
+    }
+
+    .pricing-period {
+      font-size: 1.1rem;
+      color: var(--text-muted);
+      font-weight: 300;
+      margin-left: 6px;
+    }
+
+    .pricing-features {
+      list-style: none;
+      margin-bottom: 40px;
+      flex-grow: 1;
+    }
+
+    .pricing-features li {
+      margin-bottom: 14px;
+      font-size: 0.95rem;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 300;
+    }
+
+    .pricing-features li::before {
+      content: "✓";
+      color: var(--emerald);
+      font-weight: 700;
+    }
+
+    .pricing-features li.disabled {
+      color: var(--text-muted);
+      text-decoration: line-through;
+    }
+
+    .pricing-features li.disabled::before {
+      content: "✕";
+      color: var(--text-muted);
+    }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 60px 24px;
+      text-align: center;
+      background: rgba(0, 0, 0, 0.15);
+      margin-top: 100px;
+    }
+
+    .footer-links {
+      display: flex;
+      justify-content: center;
+      gap: 32px;
+      margin-bottom: 30px;
+    }
+
+    .footer-links a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-size: 0.95rem;
+      transition: var(--transition);
+    }
+
+    .footer-links a:hover {
+      color: var(--text);
+    }
+
+    .copyright {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+    }
+
+    @media (max-width: 768px) {
+      h1 {
+        font-size: 2.75rem;
+      }
+      .hero {
+        padding: 60px 20px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Sticky Navigation Header -->
+  <header>
+    <div class="nav">
+      <a href="index.html" class="brand">
+        <span class="logo-badge">O</span> Orbit
+      </a>
+      <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#pricing">Pricing</a>
+        <a href="support.html">Support</a>
+        <a href="privacy.html">Privacy</a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero Landing Section -->
+  <section class="hero">
+    <div class="hero-inner">
+      <span class="eyebrow">Meet Orbit</span>
+      <h1>Stop Counting Track Laps In Your Head</h1>
+      <p class="lede">
+        The ultimate hands-free automatic lap counter for indoor gym loops and outdoor track runs. Powered by intelligent motion sensors and background GPS pre-warming.
+      </p>
+      <div class="cta-buttons">
+        <a href="#" class="btn btn-primary">Download on App Store</a>
+        <a href="#features" class="btn btn-secondary">Explore Features</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Core Features Matrix -->
+  <section id="features" class="features-section">
+    <div class="section-header">
+      <h2 class="section-title">Smart Features Built For Athletes</h2>
+      <p class="section-subtitle">Orbit uses state-of-the-art smartphone sensors and algorithms to count laps automatically, hands-free.</p>
+    </div>
+    
+    <div class="grid">
+      <!-- Feature 1 -->
+      <div class="card">
+        <span class="card-icon">🧭</span>
+        <h3 class="card-title">Fused Gyro Heading Engine</h3>
+        <p class="card-text">
+          Our specialized yaw projection calculations eliminate magnetic anomalies and compass warping caused by gym steel building frames. Tracks indoor loops flawlessly without beacons.
+        </p>
+      </div>
+
+      <!-- Feature 2 -->
+      <div class="card">
+        <span class="card-icon">🚶</span>
+        <h3 class="card-title">Step-Gate & Phase Tracking</h3>
+        <p class="card-text">
+          Double-trigger protection gates lock in your count. Filters your gait dynamically, requiring 98% of expected lap steps and matching heading before register.
+        </p>
+      </div>
+
+      <!-- Feature 3 -->
+      <div class="card">
+        <span class="card-icon">🗺️</span>
+        <h3 class="card-title">Live Tracking & Maps</h3>
+        <p class="card-text">
+          Acquire satellite locks instantly with pre-warming coordinates. Check your path live with Standard/Satellite toggles, and use map search to find coffee, restaurants, or stores nearby.
+        </p>
+      </div>
+
+      <!-- Feature 4 -->
+      <div class="card">
+        <span class="card-icon">🔊</span>
+        <h3 class="card-title">Hands-Free Voice Cues</h3>
+        <p class="card-text">
+          Get real-time Text-to-Speech audio splits directly to your AirPods or headphones. Announces split lap times, cadence pacing, and progress goals automatically.
+        </p>
+      </div>
+
+      <!-- Feature 5 -->
+      <div class="card">
+        <span class="card-icon">🔋</span>
+        <h3 class="card-title">Pocket-Safe Background Task</h3>
+        <p class="card-text">
+          Close the screen or place the phone in your pocket. Integrated background session tracking ensures the app is highly responsive, counting laps even while system tasks run in the background.
+        </p>
+      </div>
+
+      <!-- Feature 6 -->
+      <div class="card">
+        <span class="card-icon">📊</span>
+        <h3 class="card-title">Advanced Workout Analytics</h3>
+        <p class="card-text">
+          Evaluate your fitness metrics in depth. Inspect live cadence rate, estimated stride length, cornering consistency, and export GPX or CSV files directly to Strava or Garmin.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Pricing Details Section -->
+  <section id="pricing" class="pricing-section">
+    <div class="section-header">
+      <h2 class="section-title">Simple, Unlocked Pricing</h2>
+      <p class="section-subtitle">Try the app for free on any track. Upgrade to Pro when you need unlimited metrics.</p>
+    </div>
+
+    <div class="pricing-container">
+      <!-- Free Card -->
+      <div class="pricing-card">
+        <span class="pricing-tier">Free Trial</span>
+        <div class="pricing-price">
+          $0 <span class="pricing-period">/ forever</span>
+        </div>
+        <ul class="pricing-features">
+          <li>BLE-Free Gym Engine (3 Laps limit)</li>
+          <li>Outdoor GPS Maps (3 Laps limit)</li>
+          <li>Dynamic Calorie Estimator & food equivalents</li>
+          <li>Local SQLite Database & Personal Records</li>
+          <li class="disabled">Hands-Free Voice Cues (TTS)</li>
+          <li class="disabled">Background Session Tracking</li>
+          <li class="disabled">GPX & CSV File Export</li>
+          <li class="disabled">Unlimited Lap History</li>
+        </ul>
+        <a href="#" class="btn btn-secondary" style="margin-top: auto;">Download Free</a>
+      </div>
+
+      <!-- Pro Card -->
+      <div class="pricing-card premium">
+        <span class="badge-pop">Popular</span>
+        <span class="pricing-tier">Orbit Pro</span>
+        <div class="pricing-price">
+          $4.99 <span class="pricing-period">/ month</span>
+        </div>
+        <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: -15px; margin-bottom: 20px;">Or choose Annual at $29.99/yr (Save 50%!)</p>
+        <ul class="pricing-features">
+          <li><strong>Unlimited Laps</strong> (Indoor & Outdoor)</li>
+          <li>Interactive Live GPS Maps</li>
+          <li>Background Session tracking</li>
+          <li>Hands-Free Voice Splits (TTS)</li>
+          <li>GPX & CSV File Exports to Strava / Garmin</li>
+          <li>Advanced Cadence & Stride Length Analytics</li>
+          <li>Personal Records & SQLite History</li>
+          <li>Priority Support & Future Wearable Updates</li>
+        </ul>
+        <a href="#" class="btn btn-primary" style="margin-top: auto;">Unlock Orbit Pro</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Marketing Footer -->
+  <footer>
+    <div class="footer-links">
+      <a href="#features">Features</a>
+      <a href="#pricing">Pricing</a>
+      <a href="support.html">Support & Contact</a>
+      <a href="privacy.html">Privacy Policy</a>
+    </div>
+    <p class="copyright">&copy; 2026 Orbit. All rights reserved. iPhone, App Store, and AirPods are trademarks of Apple Inc.</p>
+  </footer>
+
+</body>
+</html>
