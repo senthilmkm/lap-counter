@@ -4,10 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
-  <meta name="description" content="Orbit Privacy Policy — Learn how we protect your information. 100% on-device SQLite database, private GPS routing, and sensor security.">
+  <meta name="description" content="Orbit Terms of Service — Review our terms of use, safety guidelines, and subscription details. Simple, plain-English terms.">
   <meta name="theme-color" content="#080c14">
 
-  <title>Orbit Privacy Policy</title>
+  <title>Terms of Service — Orbit</title>
   
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -31,7 +31,10 @@
       --cyan-gradient: linear-gradient(135deg, #22d3ee 0%, #0891b2 100%);
       --emerald: #10b981;
       
-      --content-max: 800px;
+      --tldr-bg: rgba(139, 92, 246, 0.08);
+      --tldr-border: rgba(139, 92, 246, 0.25);
+      
+      --content-max: 780px;
       --transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
@@ -46,6 +49,8 @@
         --text-muted: #94a3b8;
         --primary: #7c3aed;
         --cyan: #0891b2;
+        --tldr-bg: rgba(124, 58, 237, 0.06);
+        --tldr-border: rgba(124, 58, 237, 0.15);
       }
     }
 
@@ -131,14 +136,14 @@
       color: var(--text);
     }
 
-    /* Privacy Layout */
-    .privacy-container {
+    /* Terms Layout */
+    .terms-container {
       max-width: var(--content-max);
       margin: 60px auto 0 auto;
       padding: 0 24px;
     }
 
-    .privacy-header {
+    .terms-header {
       text-align: center;
       margin-bottom: 50px;
     }
@@ -155,7 +160,7 @@
       background-clip: text;
     }
 
-    .last-updated {
+    .meta-date {
       color: var(--text-muted);
       font-size: 0.9rem;
       font-weight: 500;
@@ -163,13 +168,44 @@
       letter-spacing: 0.05em;
     }
 
-    .privacy-body {
+    .terms-body {
       background: var(--bg-elev);
       border: 1px solid var(--border);
       border-radius: 24px;
       padding: 40px;
       backdrop-filter: blur(10px);
       -webkit-backdrop-filter: blur(10px);
+    }
+
+    /* TL;DR Section */
+    .tldr-box {
+      background: var(--tldr-bg);
+      border: 1px solid var(--tldr-border);
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 36px;
+    }
+
+    .tldr-title {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 0.85rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--primary);
+      margin-bottom: 12px;
+    }
+
+    .tldr-list {
+      list-style: square;
+      margin-left: 20px;
+      color: var(--text-secondary);
+      font-size: 0.95rem;
+      font-weight: 300;
+    }
+
+    .tldr-list li {
+      margin-bottom: 8px;
     }
 
     h2 {
@@ -190,8 +226,7 @@
       font-weight: 300;
     }
 
-    ul {
-      list-style: square;
+    ul, ol {
       margin-left: 20px;
       margin-bottom: 20px;
       color: var(--text-secondary);
@@ -200,6 +235,15 @@
 
     li {
       margin-bottom: 8px;
+    }
+
+    a {
+      color: var(--primary);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
     }
 
     /* Footer */
@@ -252,60 +296,83 @@
     </div>
   </header>
 
-  <div class="privacy-container">
-    <div class="privacy-header">
-      <h1>Privacy Policy</h1>
-      <span class="last-updated">Last Updated: June 18, 2026</span>
+  <div class="terms-container">
+    <div class="terms-header">
+      <h1>Terms of Service</h1>
+      <span class="meta-date">Effective Date: June 18, 2026</span>
     </div>
 
-    <div class="privacy-body">
+    <div class="terms-body">
+      <!-- Quick TL;DR box -->
+      <div class="tldr-box">
+        <div class="tldr-title">TL;DR (Too Long; Didn't Read)</div>
+        <ul class="tldr-list">
+          <li>Orbit works 100% locally on your smartphone. We do not store or sell your workout runs.</li>
+          <li>Subscriptions are handled securely via Apple App Store. We do not store payment credentials.</li>
+          <li>Be safe! Pay attention to your surroundings. We are not responsible if you trip or get hurt while running.</li>
+        </ul>
+      </div>
+
       <p>
-        Orbit (referenced as "we", "our", or "the app") is committed to protecting your personal information. Orbit is built with a strict "privacy-by-design" philosophy: <strong>all data processed during your workouts remains 100% on your device.</strong>
+        These terms of service ("Terms") govern your download, installation, and use of Orbit ("the app", "we", "us"). By installing or utilizing Orbit, you agree to comply with these Terms. If you do not accept them, please remove Orbit from your device.
+      </p>
+      
+      <p>
+        These Terms <strong>supplement</strong> the standard Apple Licensed Application End User License Agreement (EULA). In the event of a conflict, the terms of the standard Apple EULA shall take precedence.
       </p>
 
-      <h2>1. Information Processing & Storage</h2>
+      <h2>1. Description of Service</h2>
       <p>
-        All activity logs, GPS coordinate paths, step metrics, cadence metrics, and personal profile information (such as weight and workout targets) are stored locally on your device within an encrypted private SQLite database structure. 
+        Orbit is a hands-free automatic lap counter application designed for indoor tracks (via smartphone sensor fusion) and outdoor tracks (via location/GPS services). 
       </p>
       <p>
-        We do not own, operate, or maintain cloud database servers to compile or review your workouts. Your training routes, routines, and performance metrics are entirely your own and never sent to our servers.
+        Because smartphone sensors and GPS signals vary based on weather, indoor metallic interference, satellite availability, and device hardware, Orbit does not guarantee 100% tracking accuracy for all environments. The data provided is for fitness reference only.
       </p>
 
-      <h2>2. Location Services (GPS Data)</h2>
+      <h2>2. User Safety & Conduct</h2>
       <p>
-        To support outdoor lap counter functions, Orbit requires access to your device's Location services. 
+        Your physical safety is paramount. 
       </p>
       <ul>
-        <li><strong>Foreground Location:</strong> Tracks your coordinates to draw workout path polylines, measure point A distance, and trigger lap counts.</li>
-        <li><strong>Background Location:</strong> Permits the app to continue counting laps, tracking displacement, and playing audio voice notifications when the device screen is off or in your pocket.</li>
-        <li><strong>Privacy Guard:</strong> Location tracking only activates during an active workout session. Your coordinate files never leave your device unless you choose to share them manually.</li>
+        <li><strong>Pay Attention:</strong> Never look at the Orbit screen or manipulate settings while running in areas where you could trip, collide with objects, or obstruct others.</li>
+        <li><strong>AirPods/Headphones Safety:</strong> When using audio voice splits (TTS), keep the volume at a level that still permits you to hear ambient track warnings, safety calls, or nearby vehicles.</li>
+        <li><strong>Gym Safety:</strong> Place your device securely in a pocket, arm-band, or holder. Do not hold the device in a manner that increases fall risks or impacts.</li>
       </ul>
-
-      <h2>3. Device Sensor Diagnostics</h2>
       <p>
-        To support indoor gym tracking BLE-free, Orbit accesses local hardware sensors:
+        We are not responsible for any personal injury, bodily harm, property damage, or accidents incurred while using Orbit.
+      </p>
+
+      <h2>3. Subscription Details & In-App Purchases</h2>
+      <p>
+        Orbit offers free basic tracking (up to 3 laps per workout) and premium subscription options (Orbit Pro) for unlimited tracking and advanced analytics.
       </p>
       <ul>
-        <li><strong>Accelerometer & Gyroscope:</strong> Analyzes walking gait, calculates steps, and measures angular Z-axis yaw changes.</li>
-        <li><strong>Magnetometer:</strong> Measures magnetic field vectors at your start line calibration point.</li>
+        <li><strong>Billing:</strong> Premium transactions are securely processed via RevenueCat and the Apple App Store.</li>
+        <li><strong>Automatic Renewal:</strong> Orbit Pro subscriptions automatically renew at the end of each billing cycle (monthly or annually) unless canceled at least 24 hours prior.</li>
+        <li><strong>Cancelation & Refunds:</strong> You can manage and cancel your subscriptions in your Apple Account settings. All refund requests are subject to the policies of the Apple App Store.</li>
       </ul>
+
+      <h2>4. Disclaimers & Warranties</h2>
       <p>
-        This sensor processing is executed in real-time on-device. No sensor streams are compiled or uploaded.
+        Orbit is provided "as is" and "as available," without warranties of any kind, either express or implied. 
+      </p>
+      <p>
+        We do not warrant that the application will operate error-free, that GPS pre-warming will lock signal in every venue, or that magnetometer/sensor calibrations will succeed on all surfaces. Calibration is subject to external local variables.
       </p>
 
-      <h2>4. Subscription Billing & Analytics</h2>
+      <h2>5. Limitation of Liability</h2>
       <p>
-        Orbit utilizes RevenueCat and the native Apple App Store to coordinate subscription billing for Orbit Pro. Purchases are secured using Apple's in-app purchasing mechanics. We do not gather or store payment credentials, credit card details, billing statements, or real names.
+        To the maximum extent permitted by applicable law, in no event shall the developer of Orbit be liable for any indirect, incidental, special, exemplary, or consequential damages arising out of your use of or inability to use the application.
       </p>
 
-      <h2>5. Sharing Workouts</h2>
+      <h2>6. Changes to Terms</h2>
       <p>
-        If you manually select GPX/CSV export or text sharing to publish files to Strava, Garmin, or third-party networks, you are initiating that transfer. Orbit holds no liability for how those external platforms manage your shared data.
+        We reserve the right to modify these Terms. If a revision is made, we will update the "Effective Date" at the top of this document. Continued use of the app following updates denotes acceptance of the revised Terms.
       </p>
 
-      <h2>6. Contact Us</h2>
+      <h2>7. Contact</h2>
       <p>
-        If you have questions regarding this Privacy Policy, please contact us at: <a href="mailto:senthil930@gmail.com" style="color: var(--primary);">senthil930@gmail.com</a>.
+        For inquiries regarding these Terms, contact us at: <a href="mailto:senthil930@gmail.com">senthil930@gmail.com</a>.
       </p>
     </div>
   </div>
