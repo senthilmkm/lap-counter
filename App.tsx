@@ -656,24 +656,11 @@ export default function App() {
                   onChange={setTargetInput}
                   onTargetInputBlur={() => saveSettingSync('targetLaps', targetInput)}
                   onStart={onStart}
-                  disableBle={disableBle}
-                  onDisableBleChange={(val) => {
-                    setDisableBle(val);
-                    saveSettingSync('disableBle', String(val));
-                  }}
                   prewarmLocation={prewarmLocation}
                   weatherSuggest={weatherSuggest}
                   weatherUnit={weatherUnit}
-                  voiceCuesEnabled={voiceCuesEnabled}
-                  onVoiceCuesChange={setVoiceCuesEnabled}
                   isPremium={isPremium}
                   onShowPaywall={() => setShowPaywall(true)}
-                  weightInput={weightInput}
-                  onWeightInputChange={handleWeightInputChange}
-                  onWeightInputBlur={handleWeightInputBlur}
-                  weightUnit={weightUnit}
-                  onWeightUnitChange={handleWeightUnitChange}
-                  onShowInfoModal={() => setShowInfoModal(true)}
                   maxFreeIndoorLaps={pricingConfig.features.maxFreeIndoorLaps}
                 />
               )}
@@ -1247,21 +1234,11 @@ function SetupCard(props: {
   onChange: (v: string) => void;
   onTargetInputBlur: () => void;
   onStart: () => void;
-  disableBle: boolean;
-  onDisableBleChange: (v: boolean) => void;
   prewarmLocation: GeoPoint | null;
   weatherSuggest: { temp: number; condition: string; code: number } | null;
   weatherUnit: 'celsius' | 'fahrenheit';
-  voiceCuesEnabled: boolean;
-  onVoiceCuesChange: (v: boolean) => void;
   isPremium: boolean;
   onShowPaywall: () => void;
-  weightInput: string;
-  onWeightInputChange: (v: string) => void;
-  onWeightInputBlur: () => void;
-  weightUnit: 'lbs' | 'kg';
-  onWeightUnitChange: (v: 'lbs' | 'kg') => void;
-  onShowInfoModal: () => void;
   maxFreeIndoorLaps: number;
 }) {
   let gpsStatusComponent = null;
@@ -1313,7 +1290,7 @@ function SetupCard(props: {
 
       {/* SECTION 1: GOAL SETUP */}
       <View style={styles.setupSection}>
-        <Text style={styles.setupSectionTitle}>1. Workout Goal</Text>
+        <Text style={styles.setupSectionTitle}>Workout Goal</Text>
         <ModePicker
           mode={props.mode}
           onChange={props.onModeChange}
@@ -1337,95 +1314,6 @@ function SetupCard(props: {
         )}
       </View>
 
-      {/* SECTION 2: BODY PROFILE */}
-      <View style={styles.setupSection}>
-        <Text style={styles.setupSectionTitle}>2. Body Profile (for Calorie Accuracy)</Text>
-        <View style={styles.weightRow}>
-          <View style={styles.weightInputBox}>
-            <Text style={styles.inputLabel}>Weight</Text>
-            <TextInput
-              value={props.weightInput}
-              onChangeText={props.onWeightInputChange}
-              onBlur={props.onWeightInputBlur}
-              keyboardType="decimal-pad"
-              style={styles.weightTextInput}
-              placeholder="150"
-              placeholderTextColor="#6b7280"
-              maxLength={4}
-            />
-          </View>
-          <View style={styles.weightUnitBox}>
-            <Text style={styles.inputLabel}>Unit</Text>
-            <View style={styles.unitToggleRow}>
-              <Pressable
-                onPress={() => props.onWeightUnitChange('lbs')}
-                style={[
-                  styles.unitToggleBtn,
-                  props.weightUnit === 'lbs' && styles.unitToggleBtnActive,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.unitToggleText,
-                    props.weightUnit === 'lbs' && styles.unitToggleTextActive,
-                  ]}
-                >
-                  Lbs
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() => props.onWeightUnitChange('kg')}
-                style={[
-                  styles.unitToggleBtn,
-                  props.weightUnit === 'kg' && styles.unitToggleBtnActive,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.unitToggleText,
-                    props.weightUnit === 'kg' && styles.unitToggleTextActive,
-                  ]}
-                >
-                  Kg
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-        <Pressable onPress={props.onShowInfoModal} style={styles.infoLinkBtn}>
-          <Text style={styles.infoLinkText}>ℹ️ How is calorie burn calculated?</Text>
-        </Pressable>
-      </View>
-
-      {/* SECTION 3: ADVANCED PREFERENCES */}
-      <View style={styles.setupSection}>
-        <Text style={styles.setupSectionTitle}>3. Tracking Options</Text>
-        {props.mode === 'indoor' && (
-          <View style={styles.toggleRow}>
-            <Text style={styles.toggleLabel}>Use BLE Beacons (optional)</Text>
-            <Switch
-              value={!props.disableBle}
-              onValueChange={(val) => props.onDisableBleChange(!val)}
-              trackColor={{ true: '#10b981', false: '#374151' }}
-            />
-          </View>
-        )}
-        <Pressable
-          onPress={() => props.onVoiceCuesChange(!props.voiceCuesEnabled)}
-          style={styles.toggleRow}
-        >
-          <Text style={styles.toggleLabel}>Announce lap cues (Voice splits)</Text>
-          <View
-            style={[
-              styles.customCheckbox,
-              props.voiceCuesEnabled && styles.customCheckboxSelected,
-            ]}
-          >
-            {props.voiceCuesEnabled && <Text style={styles.customCheckboxCheck}>✓</Text>}
-          </View>
-        </Pressable>
-      </View>
-
       {gpsStatusComponent}
 
       <Pressable
@@ -1439,9 +1327,7 @@ function SetupCard(props: {
       </Pressable>
       <Text style={styles.helpText}>
         {props.mode === 'indoor'
-          ? props.disableBle
-            ? 'Stand at your starting point before tapping Start. The app calibrates for ~5 seconds, then counts laps using your device\'s magnetometer, gyroscope, and step count (no external hardware needed).'
-            : 'Stand at your starting point before tapping Start. The app calibrates for ~5 seconds, then counts laps using nearby BLE beacons + magnetic field.'
+          ? 'Stand at your starting point before tapping Start. The app calibrates for ~5 seconds, then counts laps using your device\'s sensors.'
           : 'Stand at your starting point before tapping Start. The app locks onto GPS for ~8 seconds, then counts laps each time you return within 15 m of the start.\n\n* Note: Continued use of GPS tracking in the background may significantly decrease battery life.'}
       </Text>
     </View>
@@ -2062,7 +1948,7 @@ function SettingsScreen(props: {
         <Pressable onPress={props.onVersionTap}>
           <View style={styles.settingsVersionRow}>
             <Text style={styles.settingsVersionLabel}>Version</Text>
-            <Text style={styles.settingsVersionValue}>{appVersion}{props.settingsTapCount > 0 ? ` (${7 - props.settingsTapCount} more taps for debug)` : ''}</Text>
+            <Text style={styles.settingsVersionValue}>{appVersion}</Text>
           </View>
         </Pressable>
         <Text style={styles.settingsDescription}>Lap Counter Pro — built for athletes who take their training seriously.</Text>
