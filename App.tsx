@@ -497,14 +497,8 @@ export default function App() {
       return;
     }
     
-    // Gating check: Block Outdoor GPS tracking mode start for Free tier
-    if (mode === 'outdoor' && pricingConfig.features.gpsModePremiumGated && !isPremium) {
-      setShowPaywall(true);
-      return;
-    }
-
-    // Gating check: Restrict target laps to max limits for Free tier users (indoor mode)
-    if (!isPremium && pricingConfig.features.paywallEnabled && parsed > pricingConfig.features.maxFreeIndoorLaps && mode === 'indoor') {
+    // Gating check: Restrict target laps to max limits for Free tier users (both indoor and outdoor modes)
+    if (!isPremium && pricingConfig.features.paywallEnabled && parsed > pricingConfig.features.maxFreeLaps) {
       setShowPaywall(true);
       return;
     }
@@ -661,7 +655,7 @@ export default function App() {
                   weatherUnit={weatherUnit}
                   isPremium={isPremium}
                   onShowPaywall={() => setShowPaywall(true)}
-                  maxFreeIndoorLaps={pricingConfig.features.maxFreeIndoorLaps}
+                  maxFreeLaps={pricingConfig.features.maxFreeLaps}
                 />
               )}
 
@@ -1239,7 +1233,7 @@ function SetupCard(props: {
   weatherUnit: 'celsius' | 'fahrenheit';
   isPremium: boolean;
   onShowPaywall: () => void;
-  maxFreeIndoorLaps: number;
+  maxFreeLaps: number;
 }) {
   let gpsStatusComponent = null;
   if (props.mode === 'outdoor') {
@@ -1309,8 +1303,8 @@ function SetupCard(props: {
           placeholderTextColor="#6b7280"
           maxLength={4}
         />
-        {!props.isPremium && props.mode === 'indoor' && (
-          <Text style={styles.clampedDisclaimer}>⚠️ Laps capped at {props.maxFreeIndoorLaps} on the free tier. Subscribe to count unlimited.</Text>
+        {!props.isPremium && (
+          <Text style={styles.clampedDisclaimer}>⚠️ Laps capped at {props.maxFreeLaps} on the free tier. Subscribe to count unlimited.</Text>
         )}
       </View>
 
