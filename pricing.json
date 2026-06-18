@@ -1,0 +1,44 @@
+{
+  "features": {
+    "paywallEnabled": true,
+    "maxFreeIndoorLaps": 3,
+    "gpsModePremiumGated": true,
+    "analyticsPremiumGated": true,
+    "backgroundTaskPremiumGated": true,
+    "exportsPremiumGated": true
+  },
+  "announcements": {
+    "global": {
+      "message": "Welcome to Lap Counter 2.0! Enjoy dynamic MET-based calorie burn tracking, POI map searches, and personal best records.",
+      "show": true
+    },
+    "freeTier": {
+      "message": "Unlock Premium today to access unlimited laps, live GPS maps, and advanced cadence analytics!",
+      "show": true
+    },
+    "premiumMonthly": {
+      "message": "Thank you for supporting us on the Monthly plan! Check out our new outdoor run metrics.",
+      "show": false
+    },
+    "premiumAnnual": {
+      "message": "Welcome to the Annual family! You have full unlimited access to all features.",
+      "show": false
+    }
+  },
+  "tiers": {
+    "monthly": {
+      "enabled": true,
+      "productId": "goog_placeholder_monthly_product",
+      "priceLabel": "$2.99/mo",
+      "priceValue": 2.99,
+      "savePercentageLabel": ""
+    },
+    "annual": {
+      "enabled": true,
+      "productId": "goog_placeholder_annual_product",
+      "priceLabel": "$19.99/yr",
+      "priceValue": 19.99,
+      "savePercentageLabel": "Save over 40%!"
+    }
+  }
+}

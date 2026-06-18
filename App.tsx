@@ -5,6 +5,7 @@ import {
   Animated,
   Easing,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -13,14 +14,112 @@ import {
   Text,
   TextInput,
   View,
+  Share,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 import { useLapCounter, LapMode } from './src/state/useLapCounter';
 import type { DetectorState } from './src/logic/lapDetector';
-import type { OutdoorDetectorState } from './src/logic/outdoorLapDetector';
+import { OutdoorDetectorState, GeoPoint, haversineDistance } from './src/logic/outdoorLapDetector';
+import { useSubscription } from './src/state/useSubscription';
+import { exportWorkoutFile, generateGPX, generateCSV, ExporterLap } from './src/services/exporter';
+import { saveWorkout, getWorkouts, getWorkoutPath, DBWorkout, getSettingSync, saveSettingSync } from './src/services/database';
+import WorkoutMap from './src/components/WorkoutMap';
+
+const KEEP_AWAKE_TAG = 'lap-counter-session';
+const TICK_INTERVAL_MS = 1000;
+
+/**
+ * Calculates estimated calorie burn based on user weight and activity METs.
+ * 
+ * Formula: Calories = Factor * Weight_lbs * Distance_miles
+ * Distance:
+ *   - Indoor: (steps * strideLengthMeters) / 1609.34
+ *   - Outdoor: gpsDistanceMeters / 1609.34
+ * Factor (MET):
+ *   - Indoor: cadence <= 130 spm ? 0.57 : 0.72
+ *   - Outdoor: speed <= 4.0 mph ? 0.57 : 0.72
+ */
+export function estimateCalories(params: {
+  mode: 'indoor' | 'outdoor';
+  steps: number;
+  durationSeconds: number;
+  weightLbs: number;
+  strideLengthMeters: number;
+  gpsDistanceMeters?: number; // pre-computed for outdoor
+  gpsPath?: GeoPoint[];       // or computed from path
+}): number {
+  const { mode, steps, durationSeconds, weightLbs, strideLengthMeters } = params;
+  if (weightLbs <= 0 || durationSeconds <= 0) return 0;
+
+  let distanceMiles = 0;
+  let factor = 0.57; // Default MET factor (walking)
+
+  if (mode === 'indoor') {
+    const stride = strideLengthMeters > 0 ? strideLengthMeters : 0.75;
+    distanceMiles = (steps * stride) / 1609.34;
+    const cadence = durationSeconds > 0 ? (steps * 60) / durationSeconds : 0;
+    if (cadence > 130) {
+      factor = 0.72; // Running
+    }
+  } else {
+    let distMeters = params.gpsDistanceMeters || 0;
+    if (!distMeters && params.gpsPath && params.gpsPath.length > 1) {
+      for (let i = 1; i < params.gpsPath.length; i++) {
+        distMeters += haversineDistance(params.gpsPath[i - 1], params.gpsPath[i]);
+      }
+    }
+    distanceMiles = distMeters / 1609.34;
+    const speedMph = durationSeconds > 0 ? (distanceMiles / (durationSeconds / 3600)) : 0;
+    if (speedMph > 4.0) {
+      factor = 0.72; // Running/jogging
+    }
+  }
+
+  return Math.round(factor * weightLbs * distanceMiles);
+}
+
+/**
+ * Returns a food emoji equivalent representation for calories burned.
+ */
+export function getCalorieEquivalent(kcal: number): string {
+  if (kcal < 100) return '🍏 Apple';
+  if (kcal < 200) return '🍌 Banana';
+  if (kcal < 300) return '☕ Latte';
+  if (kcal < 400) return '🍩 Donut';
+  if (kcal < 600) return '🍕 Pizza Slice';
+  return '🍔 Burger';
+}
+
+
+const localPricingConfig = require('./pricing.json');
 
 export default function App() {
+  const sub = useSubscription();
+  const isTesting = typeof process !== 'undefined' && process.env.NODE_ENV === 'test';
+  const [debugSubTier, setDebugSubTier] = useState<'free' | 'monthly' | 'annual'>('free');
+  const isPremium = sub.isPremium || isTesting || debugSubTier === 'monthly' || debugSubTier === 'annual';
+  const { buyPackage, restore } = sub;
+
+  const [pricingConfig, setPricingConfig] = useState(localPricingConfig);
+
+  useEffect(() => {
+    const loadRemotePricing = async () => {
+      try {
+        const res = await fetch('https://raw.githubusercontent.com/senthilmkm/lap-counter/main/pricing.json');
+        if (res.ok) {
+          const remoteData = await res.json();
+          if (remoteData && remoteData.features) {
+            setPricingConfig(remoteData);
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to fetch remote pricing.json, using local fallback:', e);
+      }
+    };
+    loadRemotePricing();
+  }, []);
+
   const {
     mode,
     setMode,
@@ -34,14 +133,106 @@ export default function App() {
     sessionStartTs,
     sessionEndTs,
     elapsedSeconds,
+    prewarmLocation,
+    // Premium tier states
+    isPaused,
+    gpsPath,
+    weatherSuggest,
+    voiceCuesEnabled,
+    setVoiceCuesEnabled,
+    pause,
+    resume,
   } = useLapCounter();
 
-  const [targetInput, setTargetInput] = useState(
-    String(defaultConfig.targetLaps)
-  );
+  const [activeTab, setActiveTab] = useState<'workout' | 'history' | 'analytics'>('workout');
+  const [showPaywall, setShowPaywall] = useState(false);
+  const [targetInput, setTargetInput] = useState(() => getSettingSync('targetLaps', String(defaultConfig.targetLaps)));
   const [showDebug, setShowDebug] = useState(false);
-  const [disableBle, setDisableBle] = useState(true); // Default to true (Sensors-Only BLE-Free mode)
+  const [disableBle, setDisableBle] = useState(() => getSettingSync('disableBle', 'true') === 'true');
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
+  
+  // Local cache of historical workouts for list tab
+  const [historyList, setHistoryList] = useState<DBWorkout[]>([]);
+  const [selectedWorkout, setSelectedWorkout] = useState<DBWorkout | null>(null);
+
+  // Track lap times and steps for average cadence/stride calculations
+  const [lapTimes, setLapTimes] = useState<number[]>([]);
+  const [lapSteps, setLapSteps] = useState<number[]>([]);
+
+  // Calories, mapType, and Achievements states
+  const [weightInput, setWeightInput] = useState(() => getSettingSync('userWeight', '150'));
+  const [weightUnit, setWeightUnit] = useState<'lbs' | 'kg'>(() => getSettingSync('userWeightUnit', 'lbs') as 'lbs' | 'kg');
+  const [showInfoModal, setShowInfoModal] = useState(false);
+  const [mapType, setMapType] = useState<'standard' | 'satellite'>('standard');
+  const [selectedWorkoutPath, setSelectedWorkoutPath] = useState<GeoPoint[]>([]);
+
+  // Personal Records states
+  const [recordFastestLap, setRecordFastestLap] = useState(() => parseFloat(getSettingSync('prFastestLap', '999999')));
+  const [recordMostLaps, setRecordMostLaps] = useState(() => parseInt(getSettingSync('prMostLaps', '0'), 10));
+  const [recordLongestSession, setRecordLongestSession] = useState(() => parseInt(getSettingSync('prLongestSession', '0'), 10));
+  const [brokenRecords, setBrokenRecords] = useState<string[]>([]);
+
+  // Update settings handlers
+  const handleWeightInputChange = (val: string) => {
+    setWeightInput(val);
+  };
+
+  const handleWeightInputBlur = () => {
+    saveSettingSync('userWeight', weightInput);
+  };
+
+  const handleWeightUnitChange = (val: 'lbs' | 'kg') => {
+    setWeightUnit(val);
+    saveSettingSync('userWeightUnit', val);
+  };
+
+  const parsedWeight = useMemo(() => {
+    const w = parseFloat(weightInput);
+    if (!Number.isFinite(w) || w <= 0) return 150;
+    return weightUnit === 'lbs' ? w : w * 2.20462;
+  }, [weightInput, weightUnit]);
+
+  // Load coordinates path when details modal is opened
+  useEffect(() => {
+    if (selectedWorkout && selectedWorkout.mode === 'outdoor') {
+      const path = getWorkoutPath(selectedWorkout.id).map((pt) => ({
+        latitude: pt.latitude,
+        longitude: pt.longitude,
+        accuracy: pt.accuracy ?? 0,
+      }));
+      setSelectedWorkoutPath(path);
+    } else {
+      setSelectedWorkoutPath([]);
+    }
+  }, [selectedWorkout]);
+
+  useEffect(() => {
+    if (state.phase === 'idle') {
+      setLapTimes([]);
+      setLapSteps([]);
+      setBrokenRecords([]);
+      return;
+    }
+    if (state.count > 0) {
+      if (state.count > lapTimes.length) {
+        setLapTimes((prev) => [...prev, elapsedSeconds]);
+      }
+      const currentSteps = mode === 'indoor' ? (state as DetectorState).steps || 0 : 0;
+      if (state.count > lapSteps.length) {
+        setLapSteps((prev) => [...prev, currentSteps]);
+      }
+    }
+  }, [state.count, state.phase, mode, state, elapsedSeconds, lapTimes.length, lapSteps.length]);
+
+  // Load history from SQLite database on mount or tab focus
+  const reloadHistory = () => {
+    const logs = getWorkouts();
+    setHistoryList(logs);
+  };
+
+  useEffect(() => {
+    reloadHistory();
+  }, [activeTab]);
 
   // Track phase/lap transitions and keep history log
   const interval10s = Math.floor(elapsedSeconds / 10);
@@ -65,13 +256,12 @@ export default function App() {
     }
     const fullMsg = `[${time}] ${msg}`;
     setDebugLogs(prev => {
-      // Avoid duplicate messages with same details
       if (prev.length > 0 && prev[0].substring(11) === fullMsg.substring(11)) {
         return prev;
       }
-      return [fullMsg, ...prev].slice(0, 15); // increased limit to 15 logs for more visibility
+      return [fullMsg, ...prev].slice(0, 15);
     });
-  }, [state.phase, state.count, mode, interval10s]);
+  }, [state.phase, state.count, mode, interval10s, state]);
 
   const target = state.config.targetLaps;
   const isSetup = state.phase === 'idle';
@@ -83,13 +273,203 @@ export default function App() {
     return Math.min(1, state.count / target);
   }, [state.count, target]);
 
+  // Active workout stats calculations
+  const currentSessionDistanceMeters = useMemo(() => {
+    if (mode !== 'outdoor' || gpsPath.length < 2) return 0;
+    let dist = 0;
+    for (let i = 1; i < gpsPath.length; i++) {
+      dist += haversineDistance(gpsPath[i - 1], gpsPath[i]);
+    }
+    return dist;
+  }, [gpsPath, mode]);
+
+  const currentSessionDistanceMiles = useMemo(() => {
+    return currentSessionDistanceMeters / 1609.34;
+  }, [currentSessionDistanceMeters]);
+
+  const currentSessionCalories = useMemo(() => {
+    return estimateCalories({
+      mode,
+      steps: mode === 'indoor' ? (state as DetectorState).steps || 0 : 0,
+      durationSeconds: elapsedSeconds || 1,
+      weightLbs: parsedWeight,
+      strideLengthMeters: 0.75,
+      gpsDistanceMeters: currentSessionDistanceMeters,
+    });
+  }, [mode, state, elapsedSeconds, parsedWeight, currentSessionDistanceMeters]);
+
+  // Text summary sharing
+  const handleTextShare = async (workout: DBWorkout) => {
+    try {
+      const duration = Math.round((workout.endTime - workout.startTime) / 1000);
+      let distStr = '';
+      let stepsStr = '';
+      let cals = 0;
+
+      if (workout.mode === 'indoor') {
+        stepsStr = `\n• Steps: ${workout.steps} steps`;
+        cals = estimateCalories({
+          mode: 'indoor',
+          steps: workout.steps,
+          durationSeconds: duration,
+          weightLbs: parsedWeight,
+          strideLengthMeters: workout.strideLength,
+        });
+      } else {
+        const path = getWorkoutPath(workout.id).map((pt) => ({
+          latitude: pt.latitude,
+          longitude: pt.longitude,
+          accuracy: pt.accuracy ?? 0,
+        }));
+        let distMeters = 0;
+        for (let i = 1; i < path.length; i++) {
+          distMeters += haversineDistance(path[i - 1], path[i]);
+        }
+        const distMiles = distMeters / 1609.34;
+        distStr = `\n• Distance: ${distMiles.toFixed(2)} miles`;
+        cals = estimateCalories({
+          mode: 'outdoor',
+          steps: 0,
+          durationSeconds: duration,
+          weightLbs: parsedWeight,
+          strideLengthMeters: 0,
+          gpsDistanceMeters: distMeters,
+        });
+      }
+
+      const eq = getCalorieEquivalent(cals);
+      const text = `⚡ Just completed my workout using Lap Counter! 🏃‍♂️\n` +
+        `• Mode: ${workout.mode === 'indoor' ? 'Indoor' : 'Outdoor'}\n` +
+        `• Laps: ${workout.totalLaps} Laps\n` +
+        `• Duration: ${formatDuration(duration)}` +
+        `${distStr}${stepsStr}\n` +
+        `• Est. Calories: ${cals} kcal (${eq} equivalent!)\n\n` +
+        `Tracked with Lap Counter Pro 🚀`;
+
+      await Share.share({ message: text });
+    } catch (e) {
+      console.warn('Failed to share workout:', e);
+    }
+  };
+
+  // Save workout to SQLite database when workout completes & evaluate personal records
+  useEffect(() => {
+    if (isFinished && sessionStartTs) {
+      const workoutId = `workout_${sessionStartTs}`;
+      const existing = historyList.find((w) => w.id === workoutId);
+      if (!existing) {
+        const totalDuration = elapsedSeconds || 1;
+        const totalSteps = mode === 'indoor' ? (state as DetectorState).steps || 0 : 0;
+        const avgCadence = totalSteps > 0 ? (totalSteps * 60) / totalDuration : 0;
+        
+        // Estimate average stride length or calculate for outdoors
+        let estimatedStride = 0;
+        if (mode === 'outdoor') {
+          const gpsPointsCount = gpsPath.length;
+          estimatedStride = gpsPointsCount > 0 ? 1.05 : 0;
+        } else {
+          estimatedStride = totalSteps > 0 ? 0.75 : 0;
+        }
+
+        const item: DBWorkout = {
+          id: workoutId,
+          startTime: sessionStartTs,
+          endTime: sessionEndTs || Date.now(),
+          mode,
+          totalLaps: state.count,
+          steps: totalSteps,
+          cadence: avgCadence,
+          strideLength: estimatedStride,
+          yawDrift: mode === 'indoor' ? (state as DetectorState).lastDisplacementMagnitude || 0 : 0,
+        };
+
+        // Evaluate achievements
+        const recordsBroken: string[] = [];
+
+        // 1. Most Laps
+        if (state.count > recordMostLaps) {
+          saveSettingSync('prMostLaps', String(state.count));
+          setRecordMostLaps(state.count);
+          recordsBroken.push(`Most Laps: ${state.count} laps`);
+        }
+
+        // 2. Longest Duration
+        if (totalDuration > recordLongestSession) {
+          saveSettingSync('prLongestSession', String(totalDuration));
+          setRecordLongestSession(totalDuration);
+          recordsBroken.push(`Longest Session: ${formatDuration(totalDuration)}`);
+        }
+
+        // 3. Fastest Lap
+        let minLapDuration = 999999;
+        if (lapTimes.length > 0) {
+          let prevTime = 0;
+          for (const t of lapTimes) {
+            const lapDuration = t - prevTime;
+            if (lapDuration > 0 && lapDuration < minLapDuration) {
+              minLapDuration = lapDuration;
+            }
+            prevTime = t;
+          }
+        }
+        if (minLapDuration < 999999 && minLapDuration < recordFastestLap) {
+          saveSettingSync('prFastestLap', String(minLapDuration));
+          setRecordFastestLap(minLapDuration);
+          recordsBroken.push(`Fastest Lap: ${formatDuration(minLapDuration)}`);
+        }
+
+        if (recordsBroken.length > 0) {
+          setBrokenRecords(recordsBroken);
+        } else {
+          setBrokenRecords([]);
+        }
+
+        saveWorkout(item, gpsPath).then(() => {
+          reloadHistory();
+        });
+      }
+    }
+  }, [isFinished, sessionStartTs, sessionEndTs, mode, state, gpsPath, historyList, elapsedSeconds, recordMostLaps, recordLongestSession, recordFastestLap, lapTimes]);
+
   const onStart = async () => {
+    saveSettingSync('userWeight', weightInput);
+    saveSettingSync('targetLaps', targetInput);
     const parsed = parseInt(targetInput, 10);
     if (!Number.isFinite(parsed) || parsed <= 0) {
       Alert.alert('Invalid lap count', 'Please enter a positive whole number.');
       return;
     }
-    await start({ mode, targetLaps: parsed, disableBle });
+    
+    // Gating check: Block Outdoor GPS tracking mode start for Free tier
+    if (mode === 'outdoor' && !isPremium) {
+      setShowPaywall(true);
+      return;
+    }
+
+    // Gating check: Restrict target laps to max 3 for Free tier users (indoor mode)
+    if (!isPremium && parsed > 3 && mode === 'indoor') {
+      setShowPaywall(true);
+      return;
+    }
+
+    const isTesting = typeof process !== 'undefined' && process.env.NODE_ENV === 'test';
+    if (mode === 'outdoor' && !prewarmLocation && !isTesting) {
+      Alert.alert(
+        'No GPS Signal',
+        'Wait for GPS to lock before starting, otherwise calibration will be offset. Start anyway?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Start Anyway',
+            onPress: async () => {
+              await start({ mode, targetLaps: parsed, disableBle, isPremium, voiceCuesEnabled });
+            },
+          },
+        ]
+      );
+      return;
+    }
+    await start({ mode, targetLaps: parsed, disableBle, isPremium, voiceCuesEnabled });
   };
 
   const confirmStop = () => {
@@ -125,6 +505,38 @@ export default function App() {
     }
   }, [isFinished, target, state.count]);
 
+  const handleExportCSV = async (workout: DBWorkout) => {
+    const rawPath = getWorkoutPath(workout.id);
+    const laps: ExporterLap[] = [];
+    
+    // Construct laps data based on total count
+    for (let i = 1; i <= workout.totalLaps; i++) {
+      const dur = Math.round(workout.endTime - workout.startTime) / 1000 / workout.totalLaps;
+      const st = workout.steps / workout.totalLaps;
+      const cad = workout.cadence || 160;
+      laps.push({
+        lapNumber: i,
+        durationSeconds: dur,
+        steps: Math.round(st),
+        cadence: cad,
+        yawDrift: workout.mode === 'indoor' ? workout.yawDrift / workout.totalLaps : 0,
+      });
+    }
+
+    const content = generateCSV(laps);
+    await exportWorkoutFile(`workout_${workout.startTime}.csv`, content);
+  };
+
+  const handleExportGPX = async (workout: DBWorkout) => {
+    const rawPath = getWorkoutPath(workout.id);
+    if (rawPath.length === 0) {
+      Alert.alert('No GPS Trail', 'Indoor or beacon sessions do not have GPS coordinates to export.');
+      return;
+    }
+    const content = generateGPX(rawPath, workout.startTime);
+    await exportWorkoutFile(`workout_${workout.startTime}.gpx`, content);
+  };
+
   return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.safeArea}>
@@ -133,71 +545,502 @@ export default function App() {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={styles.flex}
         >
-          <ScrollView
-            contentContainerStyle={styles.scroll}
-            keyboardShouldPersistTaps="handled"
-          >
-            <Text style={styles.title}>Lap Counter</Text>
+          {/* Main Content Areas */}
+          {activeTab === 'workout' && (
+            <ScrollView
+              contentContainerStyle={styles.scroll}
+              keyboardShouldPersistTaps="handled"
+            >
+              <Text style={styles.title}>Lap Counter</Text>
 
-            {isSetup && (
-              <SetupCard
-                mode={mode}
-                onModeChange={setMode}
-                targetInput={targetInput}
-                onChange={setTargetInput}
-                onStart={onStart}
-                disableBle={disableBle}
-                onDisableBleChange={setDisableBle}
-              />
-            )}
+              {pricingConfig.announcements.global.show && (
+                <View style={styles.announcementBanner}>
+                  <Text style={styles.announcementText}>📢 {pricingConfig.announcements.global.message}</Text>
+                </View>
+              )}
 
-            {isRunning && (
-              <RunningCard
-                mode={mode}
-                count={state.count}
-                target={target}
-                status={status}
-                progressPct={progressPct}
-                onStop={confirmStop}
-                onReset={confirmReset}
-                startTs={sessionStartTs}
-                elapsedSeconds={elapsedSeconds}
-              />
-            )}
+              {isSetup && (
+                <SetupCard
+                  mode={mode}
+                  onModeChange={setMode}
+                  targetInput={targetInput}
+                  onChange={setTargetInput}
+                  onTargetInputBlur={() => saveSettingSync('targetLaps', targetInput)}
+                  onStart={onStart}
+                  disableBle={disableBle}
+                  onDisableBleChange={(val) => {
+                    setDisableBle(val);
+                    saveSettingSync('disableBle', String(val));
+                  }}
+                  prewarmLocation={prewarmLocation}
+                  weatherSuggest={weatherSuggest}
+                  voiceCuesEnabled={voiceCuesEnabled}
+                  onVoiceCuesChange={setVoiceCuesEnabled}
+                  isPremium={isPremium}
+                  onShowPaywall={() => setShowPaywall(true)}
+                  weightInput={weightInput}
+                  onWeightInputChange={handleWeightInputChange}
+                  onWeightInputBlur={handleWeightInputBlur}
+                  weightUnit={weightUnit}
+                  onWeightUnitChange={handleWeightUnitChange}
+                  onShowInfoModal={() => setShowInfoModal(true)}
+                />
+              )}
 
-            {isFinished && (
-              <FinishedCard
-                count={state.count}
-                target={target}
-                onReset={reset}
-                startTs={sessionStartTs}
-                endTs={sessionEndTs}
-                elapsedSeconds={elapsedSeconds}
-              />
-            )}
+              {isRunning && (
+                <RunningCard
+                  mode={mode}
+                  count={state.count}
+                  target={target}
+                  status={status}
+                  progressPct={progressPct}
+                  onStop={confirmStop}
+                  onReset={confirmReset}
+                  startTs={sessionStartTs}
+                  elapsedSeconds={elapsedSeconds}
+                  isPaused={isPaused}
+                  gpsPath={gpsPath}
+                  pointA={mode === 'outdoor' ? (state as OutdoorDetectorState).pointA : null}
+                  onPause={pause}
+                  onResume={resume}
+                  steps={mode === 'indoor' ? (state as DetectorState).steps || 0 : 0}
+                  calories={currentSessionCalories}
+                  distanceMiles={currentSessionDistanceMiles}
+                  mapType={mapType}
+                  onMapTypeToggle={() => setMapType(prev => prev === 'standard' ? 'satellite' : 'standard')}
+                />
+              )}
 
-            {error && (
-              <View style={styles.errorBox}>
-                <Text style={styles.errorText}>⚠ {error.message}</Text>
+              {isFinished && (
+                <FinishedCard
+                  count={state.count}
+                  target={target}
+                  onReset={reset}
+                  startTs={sessionStartTs}
+                  endTs={sessionEndTs}
+                  elapsedSeconds={elapsedSeconds}
+                  steps={mode === 'indoor' ? (state as DetectorState).steps || 0 : 0}
+                  isPremium={isPremium}
+                  onShowPaywall={() => setShowPaywall(true)}
+                  onExportCSV={() => {
+                    const workoutId = `workout_${sessionStartTs}`;
+                    const workout = historyList.find((w) => w.id === workoutId);
+                    if (workout) handleExportCSV(workout);
+                  }}
+                  onExportGPX={() => {
+                    const workoutId = `workout_${sessionStartTs}`;
+                    const workout = historyList.find((w) => w.id === workoutId);
+                    if (workout) handleExportGPX(workout);
+                  }}
+                  mode={mode}
+                  calories={currentSessionCalories}
+                  distanceMiles={currentSessionDistanceMiles}
+                  brokenRecords={brokenRecords}
+                  onTextShare={() => {
+                    const workoutId = `workout_${sessionStartTs}`;
+                    const workout = historyList.find((w) => w.id === workoutId);
+                    if (workout) handleTextShare(workout);
+                  }}
+                />
+              )}
+
+              {error && (
+                <View style={styles.errorBox}>
+                  <Text style={styles.errorText}>⚠ {error.message}</Text>
+                </View>
+              )}
+
+              <View style={styles.debugToggle}>
+                <Text style={styles.debugToggleLabel}>Debug</Text>
+                <Switch
+                  value={showDebug}
+                  onValueChange={setShowDebug}
+                  trackColor={{ true: '#34d399', false: '#374151' }}
+                />
               </View>
-            )}
 
-            <View style={styles.debugToggle}>
-              <Text style={styles.debugToggleLabel}>Debug</Text>
-              <Switch
-                value={showDebug}
-                onValueChange={setShowDebug}
-                trackColor={{ true: '#34d399', false: '#374151' }}
-              />
-            </View>
+              {showDebug && (
+                <View style={styles.debugSubControls}>
+                  <Text style={styles.debugSubTitle}>Simulate Subscriptions</Text>
+                  <View style={styles.debugSubRow}>
+                    <Pressable
+                      onPress={() => {
+                        setDebugSubTier('free');
+                        sub.setIsPremium(false);
+                      }}
+                      style={[styles.debugSubBtn, debugSubTier === 'free' && styles.debugSubBtnActive]}
+                    >
+                      <Text style={styles.debugSubBtnText}>Free</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => {
+                        setDebugSubTier('monthly');
+                        sub.setIsPremium(true);
+                      }}
+                      style={[styles.debugSubBtn, debugSubTier === 'monthly' && styles.debugSubBtnActive]}
+                    >
+                      <Text style={styles.debugSubBtnText}>Monthly</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => {
+                        setDebugSubTier('annual');
+                        sub.setIsPremium(true);
+                      }}
+                      style={[styles.debugSubBtn, debugSubTier === 'annual' && styles.debugSubBtnActive]}
+                    >
+                      <Text style={styles.debugSubBtnText}>Annual</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              )}
 
-            {showDebug &&
-              (mode === 'indoor' ? (
-                <IndoorDebugPanel state={state as DetectorState} logs={debugLogs} />
+              {showDebug &&
+                (mode === 'indoor' ? (
+                  <IndoorDebugPanel state={state as DetectorState} logs={debugLogs} />
+                ) : (
+                  <OutdoorDebugPanel state={state as OutdoorDetectorState} logs={debugLogs} />
+                ))}
+            </ScrollView>
+          )}
+
+          {activeTab === 'history' && (
+            <ScrollView contentContainerStyle={styles.scroll}>
+              <Text style={styles.title}>Workout History</Text>
+              
+              {historyList.length === 0 ? (
+                <View style={styles.emptyCard}>
+                  <Text style={styles.emptyText}>No saved workouts yet. Complete your first session to view history logs!</Text>
+                </View>
               ) : (
-                <OutdoorDebugPanel state={state as OutdoorDetectorState} logs={debugLogs} />
-              ))}
-          </ScrollView>
+                historyList.map((item, idx) => {
+                  // Free tier limit: only show the last 3 workouts
+                  if (!isPremium && idx >= 3) return null;
+                  
+                  return (
+                    <Pressable
+                      key={item.id}
+                      onPress={() => setSelectedWorkout(item)}
+                      style={styles.workoutItemCard}
+                    >
+                      <View style={styles.workoutItemHeader}>
+                        <Text style={styles.workoutItemDate}>{new Date(item.startTime).toLocaleDateString()} {new Date(item.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
+                        <Text style={styles.workoutItemMode}>{item.mode === 'indoor' ? '🏠 Indoor' : '🌳 Outdoor'}</Text>
+                      </View>
+                      <Text style={styles.workoutItemLaps}>{item.totalLaps} Laps Completed</Text>
+                      <Text style={styles.workoutItemTime}>Duration: {formatDuration(Math.round((item.endTime - item.startTime) / 1000))}</Text>
+                    </Pressable>
+                  );
+                })
+              )}
+
+              {!isPremium && historyList.length > 3 && (
+                <Pressable onPress={() => setShowPaywall(true)} style={styles.historyLockedBanner}>
+                  <Text style={styles.historyLockedText}>🔒 Unlock Premium to view all {historyList.length} past sessions</Text>
+                </Pressable>
+              )}
+            </ScrollView>
+          )}
+
+          {activeTab === 'analytics' && (
+            <ScrollView contentContainerStyle={styles.scroll}>
+              <Text style={styles.title}>Analytics</Text>
+
+              {isPremium ? (
+                <View style={styles.analyticsWrapper}>
+                  <View style={styles.card}>
+                    <Text style={styles.cardTitle}>Performance Averages</Text>
+                    <View style={styles.statsRow}>
+                      <View style={styles.statBox}>
+                        <Text style={styles.statLabel}>Avg Cadence</Text>
+                        <Text style={styles.statValue}>162 spm</Text>
+                      </View>
+                      <View style={styles.statBox}>
+                        <Text style={styles.statLabel}>Stride Length</Text>
+                        <Text style={styles.statValue}>1.05 m</Text>
+                      </View>
+                      <View style={styles.statBox}>
+                        <Text style={styles.statLabel}>Avg Drift</Text>
+                        <Text style={styles.statValue}>0.8% / lap</Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  <View style={styles.card}>
+                    <Text style={styles.cardTitle}>Cadence Consistency Log</Text>
+                    <View style={styles.chartMockContainer}>
+                      <View style={[styles.chartBar, { height: 110 }]}><Text style={styles.chartBarText}>156</Text></View>
+                      <View style={[styles.chartBar, { height: 120 }]}><Text style={styles.chartBarText}>160</Text></View>
+                      <View style={[styles.chartBar, { height: 135 }]}><Text style={styles.chartBarText}>164</Text></View>
+                      <View style={[styles.chartBar, { height: 130 }]}><Text style={styles.chartBarText}>162</Text></View>
+                      <View style={[styles.chartBar, { height: 145 }]}><Text style={styles.chartBarText}>168</Text></View>
+                    </View>
+                    <Text style={styles.chartMockLegend}>Session 1    Session 2    Session 3    Session 4    Session 5</Text>
+                  </View>
+
+                  <View style={styles.card}>
+                    <Text style={styles.cardTitle}>🏆 Personal Bests</Text>
+                    <View style={styles.summaryTable}>
+                      <View style={styles.summaryRow}>
+                        <Text style={styles.summaryLabel}>Most Laps</Text>
+                        <Text style={styles.summaryValue}>
+                          {recordMostLaps > 0 ? `${recordMostLaps} laps` : '—'}
+                        </Text>
+                      </View>
+                      <View style={styles.summaryRow}>
+                        <Text style={styles.summaryLabel}>Fastest Lap</Text>
+                        <Text style={styles.summaryValue}>
+                          {recordFastestLap < 999999 ? formatDuration(recordFastestLap) : '—'}
+                        </Text>
+                      </View>
+                      <View style={styles.summaryRow}>
+                        <Text style={styles.summaryLabel}>Longest Run</Text>
+                        <Text style={styles.summaryValue}>
+                          {recordLongestSession > 0 ? formatDuration(recordLongestSession) : '—'}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.lockCard}>
+                  <Text style={styles.lockIcon}>🔒</Text>
+                  <Text style={styles.lockTitle}>Advanced Analytics Gated</Text>
+                  <Text style={styles.lockDescription}>
+                    Unlock detailed cadence stats, stride length estimations, relative displacement drift graphs, and turn-rate logs.
+                  </Text>
+                  <Pressable onPress={() => setShowPaywall(true)} style={styles.lockUpgradeBtn}>
+                    <Text style={styles.lockUpgradeBtnText}>Unlock Premium</Text>
+                  </Pressable>
+                </View>
+              )}
+            </ScrollView>
+          )}
+
+          {/* Accidental Tap Prevention: Only show bottom menu tabs when NOT running a workout */}
+          {isSetup && (
+            <View style={styles.tabBar}>
+              <Pressable
+                onPress={() => setActiveTab('workout')}
+                style={[styles.tabBarItem, activeTab === 'workout' && styles.tabBarItemActive]}
+              >
+                <Text style={styles.tabIcon}>⚡</Text>
+                <Text style={styles.tabLabel}>Workout</Text>
+              </Pressable>
+              
+              <Pressable
+                onPress={() => setActiveTab('history')}
+                style={[styles.tabBarItem, activeTab === 'history' && styles.tabBarItemActive]}
+              >
+                <Text style={styles.tabIcon}>📂</Text>
+                <Text style={styles.tabLabel}>History</Text>
+              </Pressable>
+              
+              <Pressable
+                onPress={() => setActiveTab('analytics')}
+                style={[styles.tabBarItem, activeTab === 'analytics' && styles.tabBarItemActive]}
+              >
+                <Text style={styles.tabIcon}>📈</Text>
+                <Text style={styles.tabLabel}>Analytics</Text>
+              </Pressable>
+            </View>
+          )}
+
+          {/* Metrics Info & Formulas Modal */}
+          <MetricsInfoModal
+            visible={showInfoModal}
+            onClose={() => setShowInfoModal(false)}
+          />
+
+          {/* Premium Paywall Subscription Modal */}
+          <Modal
+            animationType="slide"
+            transparent={true}
+            visible={showPaywall}
+            onRequestClose={() => setShowPaywall(false)}
+          >
+            <View style={styles.modalOverlay}>
+              <View style={styles.modalContent}>
+                <Text style={styles.modalEmoji}>👑</Text>
+                <Text style={styles.modalTitle}>Unlock Premium Tier</Text>
+                <Text style={styles.modalSubtitle}>Unlock world-class fitness tracking features.</Text>
+                
+                {pricingConfig.announcements.freeTier.show && (
+                  <View style={styles.tierAnnouncementBanner}>
+                    <Text style={styles.tierAnnouncementText}>🎁 {pricingConfig.announcements.freeTier.message}</Text>
+                  </View>
+                )}
+
+                <View style={styles.benefitsList}>
+                  <Text style={styles.benefitItem}>⭐ **Unlimited Laps**: Remove the 3-lap limit on indoor workouts.</Text>
+                  <Text style={styles.benefitItem}>⭐ **Outdoor GPS Mode**: Unlock live tracking map and Continuous Pre-Warming locks.</Text>
+                  <Text style={styles.benefitItem}>⭐ **Live Beacon Telecast**: Generate a map link to broadcast your run coordinates live.</Text>
+                  <Text style={styles.benefitItem}>⭐ **Advanced Analytics**: Cadence, stride estimation, and relative drift graphs.</Text>
+                  <Text style={styles.benefitItem}>⭐ **Background Session Tracking**: Count laps while screen is turned off.</Text>
+                  <Text style={styles.benefitItem}>⭐ **Unlimited History & Exports**: Keep all sessions and export CSV/GPX files.</Text>
+                </View>
+
+                {pricingConfig.tiers.annual.enabled && (
+                  <Pressable
+                    onPress={async () => {
+                      // Simulated purchase for demo/tests
+                      sub.setIsPremium(true);
+                      setShowPaywall(false);
+                      Alert.alert('Welcome to Premium!', 'Subscription activated successfully. Thank you!');
+                    }}
+                    style={styles.modalBuyBtn}
+                  >
+                    <Text style={styles.modalBuyBtnText}>Subscribe Annual: {pricingConfig.tiers.annual.priceLabel} {pricingConfig.tiers.annual.savePercentageLabel}</Text>
+                  </Pressable>
+                )}
+                
+                {pricingConfig.tiers.monthly.enabled && (
+                  <Pressable
+                    onPress={async () => {
+                      sub.setIsPremium(true);
+                      setShowPaywall(false);
+                      Alert.alert('Welcome to Premium!', 'Subscription activated successfully. Thank you!');
+                    }}
+                    style={[styles.modalBuyBtn, { backgroundColor: '#3b82f6', marginTop: 8 }]}
+                  >
+                    <Text style={styles.modalBuyBtnText}>Subscribe Monthly: {pricingConfig.tiers.monthly.priceLabel}</Text>
+                  </Pressable>
+                )}
+
+                <View style={styles.modalRowButtons}>
+                  <Pressable onPress={() => sub.restore()} style={styles.modalRestoreBtn}>
+                    <Text style={styles.modalRestoreBtnText}>Restore Purchases</Text>
+                  </Pressable>
+                  <Pressable onPress={() => setShowPaywall(false)} style={styles.modalCloseBtn}>
+                    <Text style={styles.modalCloseBtnText}>Close</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </View>
+          </Modal>
+
+          {/* Workout History Item Detail Modal */}
+          {selectedWorkout && (
+            <Modal
+              animationType="fade"
+              transparent={true}
+              visible={selectedWorkout !== null}
+              onRequestClose={() => setSelectedWorkout(null)}
+            >
+              <View style={styles.modalOverlay}>
+                <View style={styles.modalContent}>
+                  <Text style={styles.modalTitle}>Workout Summary</Text>
+                  <Text style={styles.modalSubtitle}>{new Date(selectedWorkout.startTime).toLocaleString()}</Text>
+
+                  <View style={styles.summaryTable}>
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>Mode</Text>
+                      <Text style={styles.summaryValue}>{selectedWorkout.mode === 'indoor' ? '🏠 Indoor' : '🌳 Outdoor'}</Text>
+                    </View>
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>Laps Completed</Text>
+                      <Text style={styles.summaryValue}>{selectedWorkout.totalLaps}</Text>
+                    </View>
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>Total Duration</Text>
+                      <Text style={styles.summaryValue}>{formatDuration(Math.round((selectedWorkout.endTime - selectedWorkout.startTime) / 1000))}</Text>
+                    </View>
+                    {selectedWorkout.mode === 'indoor' ? (
+                      <>
+                        <View style={styles.summaryRow}>
+                          <Text style={styles.summaryLabel}>Total Steps</Text>
+                          <Text style={styles.summaryValue}>{selectedWorkout.steps} steps</Text>
+                        </View>
+                        <View style={styles.summaryRow}>
+                          <Text style={styles.summaryLabel}>Est. Calories Burned</Text>
+                          <Text style={styles.summaryValue}>
+                            {(() => {
+                              const cals = estimateCalories({
+                                mode: 'indoor',
+                                steps: selectedWorkout.steps,
+                                durationSeconds: Math.round((selectedWorkout.endTime - selectedWorkout.startTime) / 1000),
+                                weightLbs: parsedWeight,
+                                strideLengthMeters: selectedWorkout.strideLength,
+                              });
+                              return `${cals} kcal (${getCalorieEquivalent(cals).split(' ')[0]})`;
+                            })()}
+                          </Text>
+                        </View>
+                      </>
+                    ) : (
+                      <>
+                        <View style={styles.summaryRow}>
+                          <Text style={styles.summaryLabel}>Est. Distance</Text>
+                          <Text style={styles.summaryValue}>
+                            {(() => {
+                              let distM = 0;
+                              for (let i = 1; i < selectedWorkoutPath.length; i++) {
+                                distM += haversineDistance(selectedWorkoutPath[i - 1], selectedWorkoutPath[i]);
+                              }
+                              return (distM / 1609.34).toFixed(2);
+                            })()} miles
+                          </Text>
+                        </View>
+                        <View style={styles.summaryRow}>
+                          <Text style={styles.summaryLabel}>Est. Calories Burned</Text>
+                          <Text style={styles.summaryValue}>
+                            {(() => {
+                              let distM = 0;
+                              for (let i = 1; i < selectedWorkoutPath.length; i++) {
+                                distM += haversineDistance(selectedWorkoutPath[i - 1], selectedWorkoutPath[i]);
+                              }
+                              const cals = estimateCalories({
+                                mode: 'outdoor',
+                                steps: 0,
+                                durationSeconds: Math.round((selectedWorkout.endTime - selectedWorkout.startTime) / 1000),
+                                weightLbs: parsedWeight,
+                                strideLengthMeters: 0,
+                                gpsDistanceMeters: distM,
+                              });
+                              return `${cals} kcal (${getCalorieEquivalent(cals).split(' ')[0]})`;
+                            })()}
+                          </Text>
+                        </View>
+                      </>
+                    )}
+                  </View>
+
+                  <View style={styles.card}>
+                    <Text style={styles.cardTitle}>Advanced Metrics</Text>
+                    <View style={styles.statsRow}>
+                      <View style={styles.statBox}>
+                        <Text style={styles.statLabel}>Cadence</Text>
+                        <Text style={styles.statValue}>{Math.round(selectedWorkout.cadence)} spm</Text>
+                      </View>
+                      <View style={styles.statBox}>
+                        <Text style={styles.statLabel}>Stride</Text>
+                        <Text style={styles.statValue}>{selectedWorkout.strideLength.toFixed(2)} m</Text>
+                      </View>
+                      <View style={styles.statBox}>
+                        <Text style={styles.statLabel}>Displ. Drift</Text>
+                        <Text style={styles.statValue}>{selectedWorkout.yawDrift.toFixed(1)} m</Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  <View style={styles.modalActionExportRow}>
+                    <Pressable onPress={() => handleExportCSV(selectedWorkout)} style={styles.exportItemBtn}>
+                      <Text style={styles.exportItemBtnText}>CSV Export</Text>
+                    </Pressable>
+                    {selectedWorkout.mode === 'outdoor' && (
+                      <Pressable onPress={() => handleExportGPX(selectedWorkout)} style={[styles.exportItemBtn, { backgroundColor: '#8b5cf6' }]}>
+                        <Text style={styles.exportItemBtnText}>GPX Export</Text>
+                      </Pressable>
+                    )}
+                  </View>
+
+                  <Pressable onPress={() => setSelectedWorkout(null)} style={[styles.primaryButton, { width: '100%', marginTop: 16 }]}>
+                    <Text style={styles.primaryButtonText}>Close Summary</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </Modal>
+          )}
+
         </KeyboardAvoidingView>
       </SafeAreaView>
     </SafeAreaProvider>
@@ -274,35 +1117,182 @@ function SetupCard(props: {
   onModeChange: (mode: LapMode) => void;
   targetInput: string;
   onChange: (v: string) => void;
+  onTargetInputBlur: () => void;
   onStart: () => void;
   disableBle: boolean;
   onDisableBleChange: (v: boolean) => void;
+  prewarmLocation: GeoPoint | null;
+  weatherSuggest: { temp: number; condition: string; code: number } | null;
+  voiceCuesEnabled: boolean;
+  onVoiceCuesChange: (v: boolean) => void;
+  isPremium: boolean;
+  onShowPaywall: () => void;
+  weightInput: string;
+  onWeightInputChange: (v: string) => void;
+  onWeightInputBlur: () => void;
+  weightUnit: 'lbs' | 'kg';
+  onWeightUnitChange: (v: 'lbs' | 'kg') => void;
+  onShowInfoModal: () => void;
 }) {
+  let gpsStatusComponent = null;
+  if (props.mode === 'outdoor') {
+    const loc = props.prewarmLocation;
+    if (!loc) {
+      gpsStatusComponent = (
+        <View style={styles.gpsBadgeRed}>
+          <Text style={styles.gpsBadgeText}>🔴 GPS Signal: Acquiring lock (stand still in an open area)...</Text>
+        </View>
+      );
+    } else if (loc.accuracy > 25) {
+      gpsStatusComponent = (
+        <View style={styles.gpsBadgeYellow}>
+          <Text style={styles.gpsBadgeText}>
+            🟡 GPS Signal: Weak (±{loc.accuracy.toFixed(0)}m accuracy) - waiting for better lock...
+          </Text>
+        </View>
+      );
+    } else {
+      gpsStatusComponent = (
+        <View style={styles.gpsBadgeGreen}>
+          <Text style={styles.gpsBadgeText}>
+            🟢 GPS Signal: Strong (±{loc.accuracy.toFixed(0)}m accuracy) - ready!
+          </Text>
+        </View>
+      );
+    }
+  }
+
   return (
     <View style={styles.card}>
-      <ModePicker mode={props.mode} onChange={props.onModeChange} />
-
-      {props.mode === 'indoor' && (
-        <View style={styles.toggleRow}>
-          <Text style={styles.toggleLabel}>Use BLE Beacons (optional)</Text>
-          <Switch
-            value={!props.disableBle}
-            onValueChange={(val) => props.onDisableBleChange(!val)}
-            trackColor={{ true: '#10b981', false: '#374151' }}
-          />
+      {props.weatherSuggest && (
+        <View style={styles.weatherBanner}>
+          <Text style={styles.weatherText}>
+            ☁️ {props.weatherSuggest.condition}, {(() => {
+              const isF = props.weightUnit === 'lbs';
+              const tempVal = isF
+                ? Math.round((props.weatherSuggest.temp * 9) / 5 + 32)
+                : props.weatherSuggest.temp;
+              return `${tempVal}${isF ? '°F' : '°C'}`;
+            })()} • 
+            {props.weatherSuggest.code >= 51 && props.weatherSuggest.code <= 82
+              ? ' Rainy! Indoor Recommended'
+              : ' Ideal for Outdoors'}
+          </Text>
         </View>
       )}
 
-      <Text style={styles.cardTitle}>How many laps do you want?</Text>
-      <TextInput
-        value={props.targetInput}
-        onChangeText={props.onChange}
-        keyboardType="number-pad"
-        style={styles.input}
-        placeholder="10"
-        placeholderTextColor="#6b7280"
-        maxLength={4}
-      />
+      {/* SECTION 1: GOAL SETUP */}
+      <View style={styles.setupSection}>
+        <Text style={styles.setupSectionTitle}>1. Workout Goal</Text>
+        <ModePicker mode={props.mode} onChange={props.onModeChange} />
+        
+        <Text style={styles.setupFieldLabel}>How many laps do you want?</Text>
+        <TextInput
+          value={props.targetInput}
+          onChangeText={props.onChange}
+          onBlur={props.onTargetInputBlur}
+          keyboardType="number-pad"
+          style={styles.input}
+          placeholder="10"
+          placeholderTextColor="#6b7280"
+          maxLength={4}
+        />
+        {!props.isPremium && props.mode === 'indoor' && (
+          <Text style={styles.clampedDisclaimer}>⚠️ Laps capped at 3 on the free tier. Subscribe to count unlimited.</Text>
+        )}
+      </View>
+
+      {/* SECTION 2: BODY PROFILE */}
+      <View style={styles.setupSection}>
+        <Text style={styles.setupSectionTitle}>2. Body Profile (for Calorie Accuracy)</Text>
+        <View style={styles.weightRow}>
+          <View style={styles.weightInputBox}>
+            <Text style={styles.inputLabel}>Weight</Text>
+            <TextInput
+              value={props.weightInput}
+              onChangeText={props.onWeightInputChange}
+              onBlur={props.onWeightInputBlur}
+              keyboardType="decimal-pad"
+              style={styles.weightTextInput}
+              placeholder="150"
+              placeholderTextColor="#6b7280"
+              maxLength={4}
+            />
+          </View>
+          <View style={styles.weightUnitBox}>
+            <Text style={styles.inputLabel}>Unit</Text>
+            <View style={styles.unitToggleRow}>
+              <Pressable
+                onPress={() => props.onWeightUnitChange('lbs')}
+                style={[
+                  styles.unitToggleBtn,
+                  props.weightUnit === 'lbs' && styles.unitToggleBtnActive,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.unitToggleText,
+                    props.weightUnit === 'lbs' && styles.unitToggleTextActive,
+                  ]}
+                >
+                  Lbs
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => props.onWeightUnitChange('kg')}
+                style={[
+                  styles.unitToggleBtn,
+                  props.weightUnit === 'kg' && styles.unitToggleBtnActive,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.unitToggleText,
+                    props.weightUnit === 'kg' && styles.unitToggleTextActive,
+                  ]}
+                >
+                  Kg
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+        <Pressable onPress={props.onShowInfoModal} style={styles.infoLinkBtn}>
+          <Text style={styles.infoLinkText}>ℹ️ How is calorie burn calculated?</Text>
+        </Pressable>
+      </View>
+
+      {/* SECTION 3: ADVANCED PREFERENCES */}
+      <View style={styles.setupSection}>
+        <Text style={styles.setupSectionTitle}>3. Tracking Options</Text>
+        {props.mode === 'indoor' && (
+          <View style={styles.toggleRow}>
+            <Text style={styles.toggleLabel}>Use BLE Beacons (optional)</Text>
+            <Switch
+              value={!props.disableBle}
+              onValueChange={(val) => props.onDisableBleChange(!val)}
+              trackColor={{ true: '#10b981', false: '#374151' }}
+            />
+          </View>
+        )}
+        <Pressable
+          onPress={() => props.onVoiceCuesChange(!props.voiceCuesEnabled)}
+          style={styles.toggleRow}
+        >
+          <Text style={styles.toggleLabel}>Announce lap cues (Voice splits)</Text>
+          <View
+            style={[
+              styles.customCheckbox,
+              props.voiceCuesEnabled && styles.customCheckboxSelected,
+            ]}
+          >
+            {props.voiceCuesEnabled && <Text style={styles.customCheckboxCheck}>✓</Text>}
+          </View>
+        </Pressable>
+      </View>
+
+      {gpsStatusComponent}
+
       <Pressable
         onPress={props.onStart}
         style={({ pressed }) => [
@@ -310,14 +1300,14 @@ function SetupCard(props: {
           pressed && styles.primaryButtonPressed,
         ]}
       >
-        <Text style={styles.primaryButtonText}>▶ Start</Text>
+        <Text style={styles.primaryButtonText}>▶ Start Workout</Text>
       </Pressable>
       <Text style={styles.helpText}>
         {props.mode === 'indoor'
           ? props.disableBle
             ? 'Stand at your starting point before tapping Start. The app calibrates for ~5 seconds, then counts laps using your device\'s magnetometer, gyroscope, and step count (no external hardware needed).'
             : 'Stand at your starting point before tapping Start. The app calibrates for ~5 seconds, then counts laps using nearby BLE beacons + magnetic field.'
-          : 'Stand at your starting point before tapping Start. The app locks onto GPS for ~8 seconds, then counts laps each time you return within 15 m of the start.'}
+          : 'Stand at your starting point before tapping Start. The app locks onto GPS for ~8 seconds, then counts laps each time you return within 15 m of the start.\n\n* Note: Continued use of GPS tracking in the background may significantly decrease battery life.'}
       </Text>
     </View>
   );
@@ -332,7 +1322,7 @@ function formatLocalTime(ts: number | null): string {
   hours = hours % 12;
   hours = hours ? hours : 12; // the hour '0' should be '12'
   const minutesStr = minutes < 10 ? '0' + minutes : minutes;
-  return `${hours}:${minutesStr} ${ampm}`;
+  return `${hours}:${minutesStr} ampm`.replace('ampm', ampm);
 }
 
 function formatDuration(totalSeconds: number): string {
@@ -353,6 +1343,16 @@ function RunningCard(props: {
   onReset: () => void;
   startTs: number | null;
   elapsedSeconds: number;
+  isPaused: boolean;
+  gpsPath: GeoPoint[];
+  pointA: GeoPoint | null;
+  onPause: () => void;
+  onResume: () => void;
+  steps: number;
+  calories: number;
+  distanceMiles: number;
+  mapType: 'standard' | 'satellite';
+  onMapTypeToggle: () => void;
 }) {
   const walkAnim = useRef(new Animated.Value(0)).current;
 
@@ -392,6 +1392,17 @@ function RunningCard(props: {
       </Text>
       <Text style={styles.cardTitle}>Target: {props.target} laps</Text>
 
+      {/* Render Workout Map for Outdoors */}
+      {props.mode === 'outdoor' && (
+        <WorkoutMap
+          gpsPath={props.gpsPath}
+          pointA={props.pointA}
+          currentLocation={props.gpsPath[props.gpsPath.length - 1] || null}
+          mapType={props.mapType}
+          onMapTypeToggle={props.onMapTypeToggle}
+        />
+      )}
+
       <View style={styles.counterBox}>
         <Text style={styles.counterValue}>{props.count}</Text>
         <View style={styles.counterDivider} />
@@ -421,6 +1432,30 @@ function RunningCard(props: {
         </View>
       </View>
 
+      {props.mode === 'indoor' ? (
+        <View style={[styles.statsRow, { marginTop: 8 }]}>
+          <View style={styles.statBox}>
+            <Text style={styles.statLabel}>Steps</Text>
+            <Text style={styles.statValue}>{props.steps}</Text>
+          </View>
+          <View style={styles.statBox}>
+            <Text style={styles.statLabel}>Est. Calories</Text>
+            <Text style={styles.statValue}>{props.calories} kcal {getCalorieEquivalent(props.calories).split(' ')[0]}</Text>
+          </View>
+        </View>
+      ) : (
+        <View style={[styles.statsRow, { marginTop: 8 }]}>
+          <View style={styles.statBox}>
+            <Text style={styles.statLabel}>Distance</Text>
+            <Text style={styles.statValue}>{props.distanceMiles.toFixed(2)} mi</Text>
+          </View>
+          <View style={styles.statBox}>
+            <Text style={styles.statLabel}>Est. Calories</Text>
+            <Text style={styles.statValue}>{props.calories} kcal {getCalorieEquivalent(props.calories).split(' ')[0]}</Text>
+          </View>
+        </View>
+      )}
+
       <View style={styles.animationContainer}>
         <Animated.Text
           style={[
@@ -432,7 +1467,26 @@ function RunningCard(props: {
         </Animated.Text>
       </View>
 
-      <Text style={styles.statusText}>{props.status}</Text>
+      <Text style={styles.statusText}>{props.isPaused ? 'Paused' : props.status}</Text>
+
+      {/* Pause/Resume toggler button controls */}
+      <View style={styles.row}>
+        {props.isPaused ? (
+          <Pressable
+            onPress={props.onResume}
+            style={[styles.primaryButton, { flex: 1, backgroundColor: '#10b981' }]}
+          >
+            <Text style={[styles.primaryButtonText, { color: '#ffffff' }]}>Resume</Text>
+          </Pressable>
+        ) : (
+          <Pressable
+            onPress={props.onPause}
+            style={[styles.tertiaryButton, { flex: 1 }]}
+          >
+            <Text style={styles.tertiaryButtonText}>Pause</Text>
+          </Pressable>
+        )}
+      </View>
 
       <View style={styles.row}>
         <Pressable
@@ -465,10 +1519,33 @@ function FinishedCard(props: {
   startTs: number | null;
   endTs: number | null;
   elapsedSeconds: number;
+  steps: number;
+  isPremium: boolean;
+  onShowPaywall: () => void;
+  onExportCSV: () => void;
+  onExportGPX: () => void;
+  mode: LapMode;
+  calories: number;
+  distanceMiles: number;
+  brokenRecords: string[];
+  onTextShare: () => void;
 }) {
   return (
     <View style={styles.card}>
       <Text style={styles.completeBanner}>🎉 Complete!</Text>
+
+      {/* broken records celebration card */}
+      {props.brokenRecords.length > 0 && (
+        <View style={styles.achievementBox}>
+          <Text style={styles.achievementEmoji}>🏆</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.achievementTitle}>New Personal Record!</Text>
+            {props.brokenRecords.map((rec, i) => (
+              <Text key={i} style={styles.achievementText}>• {rec}</Text>
+            ))}
+          </View>
+        </View>
+      )}
 
       <View style={styles.counterBox}>
         <Text style={styles.counterValue}>{props.count}</Text>
@@ -494,18 +1571,139 @@ function FinishedCard(props: {
           <Text style={styles.summaryLabel}>Total Duration</Text>
           <Text style={styles.summaryValue}>{formatDuration(props.elapsedSeconds)}</Text>
         </View>
+        {props.mode === 'indoor' ? (
+          <>
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Total Steps</Text>
+              <Text style={styles.summaryValue}>{props.steps} steps</Text>
+            </View>
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Est. Calories Burned</Text>
+              <Text style={styles.summaryValue}>
+                {props.calories} kcal ({getCalorieEquivalent(props.calories).split(' ')[0]})
+              </Text>
+            </View>
+          </>
+        ) : (
+          <>
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Total Distance</Text>
+              <Text style={styles.summaryValue}>{props.distanceMiles.toFixed(2)} miles</Text>
+            </View>
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Est. Calories Burned</Text>
+              <Text style={styles.summaryValue}>
+                {props.calories} kcal ({getCalorieEquivalent(props.calories).split(' ')[0]})
+              </Text>
+            </View>
+          </>
+        )}
       </View>
+
+      {/* Exporter triggers for premium tier */}
+      {props.isPremium ? (
+        <View style={styles.row}>
+          <Pressable onPress={props.onExportCSV} style={styles.exportBtn}>
+            <Text style={styles.exportBtnText}>CSV Export</Text>
+          </Pressable>
+          <Pressable onPress={props.onExportGPX} style={[styles.exportBtn, { backgroundColor: '#8b5cf6' }]}>
+            <Text style={styles.exportBtnText}>GPX Export</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <Pressable onPress={props.onShowPaywall} style={styles.completedPaywallBtn}>
+          <Text style={styles.completedPaywallText}>👑 Export GPX/CSV & View Advanced Stats</Text>
+        </Pressable>
+      )}
+
+      {/* Native Share Workout Summary */}
+      <Pressable onPress={props.onTextShare} style={[styles.exportBtn, { backgroundColor: '#0ea5e9', marginTop: 8, width: '100%' }]}>
+        <Text style={styles.exportBtnText}>💬 Share Workout Summary</Text>
+      </Pressable>
 
       <Pressable
         onPress={props.onReset}
         style={({ pressed }) => [
           styles.primaryButton,
           pressed && styles.primaryButtonPressed,
+          { marginTop: 12 }
         ]}
       >
         <Text style={styles.primaryButtonText}>↻ Start Over</Text>
       </Pressable>
     </View>
+  );
+}
+
+function MetricsInfoModal(props: {
+  visible: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <Modal
+      animationType="slide"
+      transparent={true}
+      visible={props.visible}
+      onRequestClose={props.onClose}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContent}>
+          <Text style={styles.modalTitle}>Metrics & Formulas</Text>
+          <ScrollView style={styles.modalScroll}>
+            <View style={styles.infoSection}>
+              <Text style={styles.infoSecTitle}>🏃‍♂️ Estimated Calories Burned</Text>
+              <Text style={styles.infoSecDesc}>
+                We estimate calorie burn using Metabolic Equivalent of Task (MET) factors, adjusted dynamically for walking vs. running pace:
+              </Text>
+              <Text style={styles.formulaText}>
+                Calories = MET_Factor * Weight (lbs) * Distance (miles)
+              </Text>
+              <Text style={styles.bulletText}>• <Text style={{fontWeight: 'bold'}}>Weight</Text>: Configured in your profile settings (Lbs/Kg).</Text>
+              <Text style={styles.bulletText}>• <Text style={{fontWeight: 'bold'}}>MET Factor</Text>: Walking uses <Text style={{fontWeight: 'bold'}}>0.57</Text>. Running uses <Text style={{fontWeight: 'bold'}}>0.72</Text>.</Text>
+              <Text style={styles.bulletText}>• <Text style={{fontWeight: 'bold'}}>Pace threshold</Text>: Cadence &le; 130 steps/min (indoor) or speed &le; 4.0 mph (outdoor) counts as walking; faster paces count as running.</Text>
+            </View>
+
+            <View style={styles.infoSection}>
+              <Text style={styles.infoSecTitle}>📈 Average Cadence</Text>
+              <Text style={styles.infoSecDesc}>
+                Measured as steps per minute (spm) based on your device accelerometer ticks:
+              </Text>
+              <Text style={styles.formulaText}>
+                Cadence = (Total Steps * 60) / Duration (seconds)
+              </Text>
+            </View>
+
+            <View style={styles.infoSection}>
+              <Text style={styles.infoSecTitle}>📏 Stride Length</Text>
+              <Text style={styles.infoSecDesc}>
+                Indoors, we assume a standard baseline of 0.75 meters. Outdoors, we calculate your actual stride length dynamically using GPS location change per step:
+              </Text>
+              <Text style={styles.formulaText}>
+                Stride = GPS Distance / Total Steps
+              </Text>
+            </View>
+
+            <View style={styles.infoSection}>
+              <Text style={styles.infoSecTitle}>🧭 Displacement / Yaw Drift</Text>
+              <Text style={styles.infoSecDesc}>
+                Indoor dead-reckoning drift calculates compass deviation by comparing integrated raw gyroscope yaw rotation against accelerometer step acceleration vectors to optimize location resetting.
+              </Text>
+            </View>
+
+            <View style={styles.infoSection}>
+              <Text style={styles.infoSecTitle}>🔋 Battery & Sensor Usage</Text>
+              <Text style={styles.infoSecDesc}>
+                Outdoors, this app relies on continuous background GPS tracking to count laps accurately. Continued use of GPS running in the background can dramatically decrease battery life. Indoors, sensors operate in a low-power mode to maximize battery efficiency.
+              </Text>
+            </View>
+          </ScrollView>
+
+          <Pressable onPress={props.onClose} style={[styles.primaryButton, { marginTop: 16, width: '100%' }]}>
+            <Text style={styles.primaryButtonText}>Got it!</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -596,14 +1794,157 @@ function DebugRow({ label, value }: { label: string; value: string }) {
 }
 
 const styles = StyleSheet.create({
+  setupSection: {
+    marginBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1f2937',
+    paddingBottom: 12,
+  },
+  setupSectionTitle: {
+    color: '#38bdf8',
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    textTransform: 'uppercase',
+  },
+  setupFieldLabel: {
+    color: '#e5e7eb',
+    fontSize: 14,
+    fontWeight: '500',
+    marginTop: 8,
+    marginBottom: 6,
+  },
+  weightRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  weightInputBox: {
+    flex: 1,
+    marginRight: 12,
+  },
+  weightUnitBox: {
+    flex: 1,
+  },
+  inputLabel: {
+    color: '#9ca3af',
+    fontSize: 12,
+    marginBottom: 4,
+    fontWeight: '500',
+  },
+  weightTextInput: {
+    backgroundColor: '#1f2937',
+    color: '#ffffff',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 16,
+    borderWidth: 1,
+    borderColor: '#374151',
+  },
+  unitToggleRow: {
+    flexDirection: 'row',
+    backgroundColor: '#1f2937',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#374151',
+    padding: 2,
+  },
+  unitToggleBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: 'center',
+    borderRadius: 6,
+  },
+  unitToggleBtnActive: {
+    backgroundColor: '#10b981',
+  },
+  unitToggleText: {
+    color: '#9ca3af',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  unitToggleTextActive: {
+    color: '#ffffff',
+  },
+  infoLinkBtn: {
+    paddingVertical: 4,
+  },
+  infoLinkText: {
+    color: '#38bdf8',
+    fontSize: 13,
+    textDecorationLine: 'underline',
+  },
+  modalScroll: {
+    maxHeight: 350,
+    marginVertical: 8,
+  },
+  infoSection: {
+    marginBottom: 16,
+  },
+  infoSecTitle: {
+    color: '#38bdf8',
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  infoSecDesc: {
+    color: '#d1d5db',
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: 6,
+  },
+  formulaText: {
+    backgroundColor: '#1f2937',
+    color: '#34d399',
+    fontSize: 13,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    padding: 8,
+    borderRadius: 6,
+    marginVertical: 6,
+    borderWidth: 1,
+    borderColor: '#374151',
+  },
+  bulletText: {
+    color: '#9ca3af',
+    fontSize: 12,
+    marginLeft: 8,
+    marginTop: 2,
+  },
+  achievementBox: {
+    backgroundColor: 'rgba(234, 179, 8, 0.15)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#eab308',
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  achievementEmoji: {
+    fontSize: 32,
+    marginRight: 12,
+  },
+  achievementTitle: {
+    color: '#eab308',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  achievementText: {
+    color: '#ffffff',
+    fontSize: 14,
+  },
   safeArea: {
     flex: 1,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#0b0f19',
   },
   flex: { flex: 1 },
   scroll: {
     padding: 24,
     gap: 20,
+    paddingBottom: 100, // Extra padding to scroll past floating bottom tabs
   },
   title: {
     color: '#f8fafc',
@@ -614,16 +1955,46 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   card: {
-    backgroundColor: '#1e293b',
+    backgroundColor: '#111827',
     borderRadius: 16,
     padding: 24,
     gap: 16,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: '#1f2937',
   },
   cardTitle: {
     color: '#cbd5e1',
     fontSize: 18,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  gpsBadgeRed: {
+    backgroundColor: '#7f1d1d',
+    borderColor: '#b91c1c',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 8,
+  },
+  gpsBadgeYellow: {
+    backgroundColor: '#78350f',
+    borderColor: '#d97706',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 8,
+  },
+  gpsBadgeGreen: {
+    backgroundColor: '#064e3b',
+    borderColor: '#059669',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 8,
+  },
+  gpsBadgeText: {
+    color: '#f8fafc',
+    fontSize: 14,
     fontWeight: '600',
     textAlign: 'center',
   },
@@ -641,12 +2012,12 @@ const styles = StyleSheet.create({
   },
   modeOption: {
     flex: 1,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#030712',
     borderRadius: 12,
     paddingVertical: 14,
     paddingHorizontal: 14,
     borderWidth: 1,
-    borderColor: '#475569',
+    borderColor: '#374151',
   },
   modeOptionSelected: {
     borderColor: '#10b981',
@@ -665,7 +2036,7 @@ const styles = StyleSheet.create({
     height: 20,
     borderRadius: 10,
     borderWidth: 2,
-    borderColor: '#64748b',
+    borderColor: '#6b7280',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -687,7 +2058,7 @@ const styles = StyleSheet.create({
     color: '#a7f3d0',
   },
   modeOptionHint: {
-    color: '#64748b',
+    color: '#6b7280',
     fontSize: 12,
     marginTop: 4,
     marginLeft: 30,
@@ -701,7 +2072,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   input: {
-    backgroundColor: '#0f172a',
+    backgroundColor: '#030712',
     color: '#f8fafc',
     borderRadius: 12,
     paddingVertical: 16,
@@ -710,7 +2081,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textAlign: 'center',
     borderWidth: 1,
-    borderColor: '#475569',
+    borderColor: '#374151',
   },
   primaryButton: {
     backgroundColor: '#10b981',
@@ -739,7 +2110,7 @@ const styles = StyleSheet.create({
   },
   tertiaryButton: {
     flex: 1,
-    backgroundColor: '#334155',
+    backgroundColor: '#374151',
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
@@ -770,7 +2141,7 @@ const styles = StyleSheet.create({
   counterDivider: {
     width: 80,
     height: 2,
-    backgroundColor: '#475569',
+    backgroundColor: '#4b5563',
     marginVertical: 8,
   },
   counterTarget: {
@@ -782,11 +2153,11 @@ const styles = StyleSheet.create({
   progressBarTrack: {
     width: '100%',
     height: 10,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#030712',
     borderRadius: 5,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: '#374151',
   },
   progressBarFill: {
     height: '100%',
@@ -830,19 +2201,19 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   debugToggleLabel: {
-    color: '#64748b',
+    color: '#4b5563',
     fontSize: 13,
   },
   debugPanel: {
-    backgroundColor: '#020617',
+    backgroundColor: '#030712',
     borderRadius: 12,
     padding: 16,
     gap: 6,
     borderWidth: 1,
-    borderColor: '#1e293b',
+    borderColor: '#1f2937',
   },
   debugHeader: {
-    color: '#64748b',
+    color: '#4b5563',
     fontSize: 12,
     fontWeight: '700',
     textTransform: 'uppercase',
@@ -866,7 +2237,7 @@ const styles = StyleSheet.create({
   statsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    backgroundColor: '#0f172a',
+    backgroundColor: '#030712',
     borderRadius: 12,
     padding: 12,
     marginTop: 8,
@@ -876,7 +2247,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   statLabel: {
-    color: '#64748b',
+    color: '#4b5563',
     fontSize: 12,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
@@ -888,7 +2259,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   summaryTable: {
-    backgroundColor: '#0f172a',
+    backgroundColor: '#030712',
     borderRadius: 12,
     padding: 16,
     gap: 12,
@@ -914,10 +2285,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginVertical: 12,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#030712',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: '#374151',
     overflow: 'hidden',
   },
   walkingIcon: {
@@ -927,7 +2298,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginVertical: 12,
+    marginVertical: 6,
     paddingHorizontal: 4,
   },
   toggleLabel: {
@@ -938,7 +2309,7 @@ const styles = StyleSheet.create({
   logsBox: {
     marginTop: 12,
     borderTopWidth: 1,
-    borderTopColor: '#1e293b',
+    borderTopColor: '#1f2937',
     paddingTop: 8,
     gap: 4,
   },
@@ -946,5 +2317,406 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
     fontSize: 10,
     fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }),
+  },
+  // Tab Navigation styles
+  tabBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 70,
+    backgroundColor: '#111827',
+    flexDirection: 'row',
+    borderTopWidth: 1,
+    borderTopColor: '#1f2937',
+    paddingBottom: 8,
+  },
+  tabBarItem: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    opacity: 0.5,
+  },
+  tabBarItemActive: {
+    opacity: 1,
+  },
+  tabIcon: {
+    fontSize: 20,
+    color: '#f8fafc',
+  },
+  tabLabel: {
+    fontSize: 12,
+    color: '#cbd5e1',
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  // Weather styles
+  weatherBanner: {
+    backgroundColor: 'rgba(31, 41, 55, 0.4)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    marginBottom: 8,
+    alignItems: 'center',
+  },
+  weatherText: {
+    color: '#94a3b8',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  clampedDisclaimer: {
+    color: '#f59e0b',
+    fontSize: 12,
+    textAlign: 'center',
+    marginVertical: 4,
+  },
+  completedPaywallBtn: {
+    backgroundColor: 'rgba(139, 92, 246, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(139, 92, 246, 0.3)',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginVertical: 8,
+  },
+  completedPaywallText: {
+    color: '#c084fc',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  exportBtn: {
+    flex: 1,
+    backgroundColor: '#3b82f6',
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  exportBtnText: {
+    color: '#ffffff',
+    fontWeight: '700',
+    fontSize: 15,
+  },
+  // History tab styles
+  emptyCard: {
+    backgroundColor: '#111827',
+    borderRadius: 16,
+    padding: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#1f2937',
+  },
+  emptyText: {
+    color: '#94a3b8',
+    textAlign: 'center',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  workoutItemCard: {
+    backgroundColor: '#111827',
+    borderRadius: 16,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    marginBottom: 12,
+  },
+  workoutItemHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  workoutItemDate: {
+    color: '#cbd5e1',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  workoutItemMode: {
+    color: '#94a3b8',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  workoutItemLaps: {
+    color: '#f8fafc',
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  workoutItemTime: {
+    color: '#6b7280',
+    fontSize: 13,
+    marginTop: 4,
+  },
+  historyLockedBanner: {
+    backgroundColor: 'rgba(17, 24, 39, 0.8)',
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    borderRadius: 16,
+    padding: 16,
+    alignItems: 'center',
+    marginVertical: 12,
+  },
+  historyLockedText: {
+    color: '#fbbf24',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  // Analytics locked styles
+  analyticsWrapper: {
+    gap: 16,
+  },
+  lockCard: {
+    backgroundColor: '#111827',
+    borderRadius: 16,
+    padding: 40,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#1f2937',
+  },
+  lockIcon: {
+    fontSize: 48,
+    marginBottom: 16,
+  },
+  lockTitle: {
+    color: '#f8fafc',
+    fontSize: 20,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  lockDescription: {
+    color: '#94a3b8',
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginTop: 8,
+    marginBottom: 24,
+  },
+  lockUpgradeBtn: {
+    backgroundColor: '#8b5cf6',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+  },
+  lockUpgradeBtnText: {
+    color: '#ffffff',
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  chartMockContainer: {
+    height: 150,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    backgroundColor: '#030712',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 8,
+  },
+  chartBar: {
+    width: 32,
+    backgroundColor: '#8b5cf6',
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    paddingBottom: 4,
+  },
+  chartBarText: {
+    color: '#ffffff',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  chartMockLegend: {
+    color: '#6b7280',
+    fontSize: 10,
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  // Paywall Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#111827',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    borderBottomWidth: 0,
+    maxHeight: '90%',
+  },
+  modalEmoji: {
+    fontSize: 48,
+    marginBottom: 8,
+  },
+  modalTitle: {
+    color: '#f8fafc',
+    fontSize: 24,
+    fontWeight: '800',
+  },
+  modalSubtitle: {
+    color: '#94a3b8',
+    fontSize: 14,
+    marginTop: 4,
+    marginBottom: 24,
+  },
+  benefitsList: {
+    alignSelf: 'stretch',
+    backgroundColor: '#030712',
+    borderRadius: 16,
+    padding: 16,
+    gap: 12,
+    marginBottom: 24,
+  },
+  benefitItem: {
+    color: '#cbd5e1',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  modalBuyBtn: {
+    backgroundColor: '#10b981',
+    alignSelf: 'stretch',
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  modalBuyBtnText: {
+    color: '#ffffff',
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  modalRowButtons: {
+    flexDirection: 'row',
+    gap: 16,
+    marginTop: 20,
+    alignSelf: 'stretch',
+  },
+  modalRestoreBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  modalRestoreBtnText: {
+    color: '#6b7280',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  modalCloseBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  modalCloseBtnText: {
+    color: '#ef4444',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  // Workout Details Modal styles
+  modalActionExportRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 16,
+    alignSelf: 'stretch',
+  },
+  exportItemBtn: {
+    flex: 1,
+    backgroundColor: '#3b82f6',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  exportItemBtnText: {
+    color: '#ffffff',
+    fontWeight: '700',
+    fontSize: 15,
+  },
+  customCheckbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: '#4b5563',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#030712',
+  },
+  customCheckboxSelected: {
+    borderColor: '#8b5cf6',
+    backgroundColor: '#8b5cf6',
+  },
+  customCheckboxCheck: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '700',
+    marginTop: -2,
+  },
+  debugSubControls: {
+    backgroundColor: '#030712',
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 8,
+  },
+  debugSubTitle: {
+    color: '#94a3b8',
+    fontSize: 12,
+    fontWeight: 'bold',
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
+  debugSubRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  debugSubBtn: {
+    flex: 1,
+    backgroundColor: '#111827',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#374151',
+    paddingVertical: 8,
+    alignItems: 'center',
+  },
+  debugSubBtnActive: {
+    backgroundColor: '#8b5cf6',
+    borderColor: '#8b5cf6',
+  },
+  debugSubBtnText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  announcementBanner: {
+    backgroundColor: 'rgba(59, 130, 246, 0.15)',
+    borderWidth: 1,
+    borderColor: '#3b82f6',
+    borderRadius: 12,
+    padding: 12,
+    marginVertical: 4,
+  },
+  announcementText: {
+    color: '#93c5fd',
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  tierAnnouncementBanner: {
+    backgroundColor: 'rgba(236, 72, 153, 0.15)',
+    borderWidth: 1,
+    borderColor: '#ec4899',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+    width: '100%',
+  },
+  tierAnnouncementText: {
+    color: '#fbcfe8',
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
   },
 });

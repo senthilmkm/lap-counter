@@ -107,7 +107,7 @@ describe('<App /> — Running state', () => {
     await waitFor(() => {
       expect(screen.getByText('Target: 5 laps')).toBeTruthy();
     });
-    expect(screen.getByText('0')).toBeTruthy();
+    expect(screen.getAllByText('0').length).toBeGreaterThan(0);
     expect(screen.getByText('/ 5')).toBeTruthy();
     expect(screen.getByText('Stop')).toBeTruthy();
     expect(screen.getByText('Reset')).toBeTruthy();

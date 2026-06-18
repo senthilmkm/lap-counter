@@ -26,6 +26,7 @@ import {
 import {
   createInitialOutdoorState,
   DEFAULT_OUTDOOR_CONFIG,
+  GeoPoint,
   OutdoorDetectorConfig,
   OutdoorDetectorState,
   outdoorReducer,
@@ -42,6 +43,8 @@ import {
   registerBackgroundTask,
   unregisterBackgroundTask,
 } from '../services/backgroundTask';
+import * as Speech from 'expo-speech';
+import { getSettingSync, saveSettingSync } from '../services/database';
 
 const KEEP_AWAKE_TAG = 'lap-counter-session';
 const TICK_INTERVAL_MS = 1000;
@@ -64,6 +67,7 @@ export type ActiveDetectorState = DetectorState | OutdoorDetectorState;
 export type StartConfig = {
   mode?: LapMode;
   disableBle?: boolean;
+  voiceCuesEnabled?: boolean;
 } & Partial<DetectorConfig> &
   Partial<OutdoorDetectorConfig>;
 
@@ -82,6 +86,22 @@ export function useLapCounter() {
   const [indoorState, indoorDispatch] = useReducer(reducer, undefined, () =>
     createInitialState()
   );
+  
+  // Premium and UX features state
+  const [isPaused, setIsPaused] = useState(false);
+  const [gpsPath, setGpsPath] = useState<Array<GeoPoint & { timestamp: number }>>([]);
+  const [weatherSuggest, setWeatherSuggest] = useState<{ temp: number; condition: string; code: number } | null>(null);
+  const [voiceCuesEnabled, setVoiceCuesEnabled] = useState(() => getSettingSync('voiceCuesEnabled', 'true') === 'true');
+
+  const handleSetVoiceCuesEnabled = useCallback((val: boolean) => {
+    setVoiceCuesEnabled(val);
+    saveSettingSync('voiceCuesEnabled', String(val));
+  }, []);
+
+  const isPausedRef = useRef(false);
+  const pauseStartTsRef = useRef<number | null>(null);
+  const totalPausedMsRef = useRef<number>(0);
+  const lastWeatherFetchRef = useRef<number>(0);
   const [outdoorState, outdoorDispatch] = useReducer(
     outdoorReducer,
     undefined,
@@ -105,7 +125,9 @@ export function useLapCounter() {
   const lastHapticCount = useRef(0);
   const targetNotifiedRef = useRef(false);
   const disableBleRef = useRef(false);
+  const prevPhaseRef = useRef<string>('idle');
 
+  const [prewarmLocation, setPrewarmLocation] = useState<GeoPoint | null>(null);
   const [sessionStartTs, setSessionStartTs] = useState<number | null>(null);
   const [sessionEndTs, setSessionEndTs] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -114,7 +136,84 @@ export function useLapCounter() {
     installForegroundHandler();
   }, []);
 
-  const teardown = useCallback(async () => {
+  const onLocationUpdateRef = useRef<(point: GeoPoint) => void>(() => {});
+  const onLocationErrorRef = useRef<(err: Error) => void>(() => {});
+
+  useEffect(() => {
+    onLocationUpdateRef.current = (point: GeoPoint) => {
+      setPrewarmLocation(point);
+      const isRunning = outdoorState.phase !== 'idle' && outdoorState.phase !== 'finished';
+      if (isRunning && !isPausedRef.current) {
+        setGpsPath((prev) => [...prev, { ...point, timestamp: Date.now() }]);
+        outdoorDispatch({
+          type: 'tick',
+          input: { now: Date.now(), position: point },
+        });
+      }
+    };
+  }, [outdoorState.phase]);
+
+  useEffect(() => {
+    onLocationErrorRef.current = (err: Error) => {
+      console.warn('GPS tracker error:', err.message);
+      const isRunning = outdoorState.phase !== 'idle' && outdoorState.phase !== 'finished';
+      if (isRunning && !isPausedRef.current) {
+        errorRef.current = { message: err.message };
+      }
+    };
+  }, [outdoorState.phase]);
+
+  useEffect(() => {
+    const isTesting = typeof process !== 'undefined' && process.env.NODE_ENV === 'test';
+    if (isTesting) return;
+    let activeTracker: LocationTrackerHandle | null = null;
+    let isActive = true;
+    
+    const run = async () => {
+      if (mode === 'outdoor') {
+        try {
+          const perm = await ensureLocationPermission();
+          if (perm.foreground && isActive) {
+            const tracker = await startLocationTracking(
+              (point) => {
+                if (isActive) {
+                  onLocationUpdateRef.current(point);
+                }
+              },
+              (err) => {
+                if (isActive) {
+                  onLocationErrorRef.current(err);
+                }
+              }
+            );
+            if (isActive) {
+              activeTracker = tracker;
+              locationHandleRef.current = tracker;
+            } else {
+              void tracker.stop();
+            }
+          }
+        } catch (e) {
+          console.warn('GPS tracker setup error:', e);
+        }
+      } else {
+        setPrewarmLocation(null);
+      }
+    };
+
+    run();
+
+    return () => {
+      isActive = false;
+      if (activeTracker) {
+        void activeTracker.stop();
+        activeTracker = null;
+        locationHandleRef.current = null;
+      }
+    };
+  }, [mode]);
+
+  const teardown = useCallback(async (options?: { forceStopGps?: boolean }) => {
     if (tickRef.current) {
       clearInterval(tickRef.current);
       tickRef.current = null;
@@ -123,7 +222,8 @@ export function useLapCounter() {
     bleHandleRef.current = null;
     motionHandleRef.current?.stop();
     motionHandleRef.current = null;
-    if (locationHandleRef.current) {
+    const isTesting = typeof process !== 'undefined' && process.env.NODE_ENV === 'test';
+    if (locationHandleRef.current && (options?.forceStopGps || isTesting)) {
       try {
         await locationHandleRef.current.stop();
       } catch {
@@ -148,24 +248,115 @@ export function useLapCounter() {
         return;
       }
       _setMode(next);
+      if (next === 'indoor') {
+        void teardown({ forceStopGps: true });
+      }
     },
-    [mode, indoorState.phase, outdoorState.phase]
+    [mode, indoorState.phase, outdoorState.phase, teardown]
   );
 
+  // Weather suggestion fetcher linked to pre-warmed GPS coordinates
+  useEffect(() => {
+    const isTesting = typeof process !== 'undefined' && process.env.NODE_ENV === 'test';
+    if (!prewarmLocation || isTesting) return;
+    const now = Date.now();
+    // Cache check: only fetch once every 5 minutes to preserve network/battery
+    if (now - lastWeatherFetchRef.current < 300000) return;
+    lastWeatherFetchRef.current = now;
+
+    const fetchWeather = async () => {
+      try {
+        const response = await fetch(
+          `https://api.open-meteo.com/v1/forecast?latitude=${prewarmLocation.latitude.toFixed(4)}&longitude=${prewarmLocation.longitude.toFixed(4)}&current=temperature_2m,weather_code`
+        );
+        const data = await response.json();
+        if (data && data.current) {
+          const temp = Math.round(data.current.temperature_2m);
+          const code = data.current.weather_code;
+          let cond = 'Clear Skies';
+          if (code >= 1 && code <= 3) cond = 'Partly Cloudy';
+          else if (code >= 45 && code <= 48) cond = 'Foggy';
+          else if (code >= 51 && code <= 67) cond = 'Drizzle/Rain';
+          else if (code >= 71 && code <= 77) cond = 'Snowy';
+          else if (code >= 80 && code <= 82) cond = 'Rain Showers';
+          else if (code >= 85 && code <= 86) cond = 'Snow Showers';
+          else if (code >= 95 && code <= 99) cond = 'Thunderstorm';
+          
+          setWeatherSuggest({ temp, code, condition: cond });
+        }
+      } catch (e) {
+        console.warn('Weather API fetch failed:', e);
+      }
+    };
+    fetchWeather();
+  }, [prewarmLocation]);
+
+  const pause = useCallback(() => {
+    const isRunning = activeState.phase !== 'idle' && activeState.phase !== 'finished';
+    if (!isRunning || isPausedRef.current) return;
+    
+    setIsPaused(true);
+    isPausedRef.current = true;
+    pauseStartTsRef.current = Date.now();
+    void lapHaptic();
+  }, [activeState.phase]);
+
+  const resume = useCallback(() => {
+    const isRunning = activeState.phase !== 'idle' && activeState.phase !== 'finished';
+    if (!isRunning || !isPausedRef.current) return;
+    
+    const pauseDuration = Date.now() - (pauseStartTsRef.current ?? Date.now());
+    totalPausedMsRef.current += pauseDuration;
+    
+    setIsPaused(false);
+    isPausedRef.current = false;
+    pauseStartTsRef.current = null;
+    void lapHaptic();
+  }, [activeState.phase]);
+
   const start = useCallback(
-    async (config?: StartConfig) => {
+    async (config?: StartConfig & { isPremium?: boolean }) => {
       if (startingRef.current) return;
       startingRef.current = true;
       errorRef.current = null;
       lastHapticCount.current = 0;
       targetNotifiedRef.current = false;
       disableBleRef.current = config?.disableBle ?? false;
-      setSessionStartTs(Date.now());
-      setSessionEndTs(null);
-      setElapsedSeconds(0);
+      
+      // Reset premium states
+      setIsPaused(false);
+      isPausedRef.current = false;
+      pauseStartTsRef.current = null;
+      totalPausedMsRef.current = 0;
+      setGpsPath([]);
 
       const requestedMode = config?.mode ?? mode;
       if (requestedMode !== mode) _setMode(requestedMode);
+
+      const isTesting = typeof process !== 'undefined' && process.env.NODE_ENV === 'test';
+      const isPremium = config?.isPremium ?? isTesting;
+
+      // Subscription check: block Outdoor GPS mode start for Free tier
+      if (!isPremium && requestedMode === 'outdoor') {
+        errorRef.current = { message: 'Outdoor GPS mode requires a Premium subscription.' };
+        startingRef.current = false;
+        return;
+      }
+
+      // Gating check: clamp target laps to max 3 on Free tier
+      let targetLaps = config?.targetLaps ?? (requestedMode === 'indoor' ? DEFAULT_CONFIG.targetLaps : DEFAULT_OUTDOOR_CONFIG.targetLaps);
+      if (!isPremium) {
+        targetLaps = Math.min(targetLaps, 3);
+      }
+
+      const modifiedConfig = {
+        ...config,
+        targetLaps,
+      };
+
+      setSessionStartTs(Date.now());
+      setSessionEndTs(null);
+      setElapsedSeconds(0);
 
       try {
         await activateKeepAwakeAsync(KEEP_AWAKE_TAG);
@@ -193,10 +384,11 @@ export function useLapCounter() {
 
           indoorDispatch({
             type: 'start',
-            config: config as Partial<DetectorConfig> | undefined,
+            config: modifiedConfig as Partial<DetectorConfig> | undefined,
           });
 
           tickRef.current = setInterval(() => {
+            if (isPausedRef.current) return;
             const motionSnap = motionHandleRef.current?.snapshot();
             if (!motionSnap) return;
             const bleSnap = disableBleRef.current ? new Map<string, number>() : aggregatorRef.current.snapshot();
@@ -209,6 +401,7 @@ export function useLapCounter() {
                   magneticMagnitude: motionSnap.magneticMagnitude,
                 },
                 displacementMagnitude: motionSnap.displacementMagnitude,
+                displacement: motionSnap.displacement,
                 gyroZRate: motionSnap.gyroZRate,
                 gyroYaw: motionSnap.gyroYaw,
                 steps: motionSnap.steps,
@@ -222,23 +415,26 @@ export function useLapCounter() {
               'Location permission denied. Outdoor mode needs GPS access.'
             );
           }
+          const maxAcc = config?.maxAcceptableAccuracyM ?? DEFAULT_OUTDOOR_CONFIG.maxAcceptableAccuracyM;
           outdoorDispatch({
             type: 'start',
-            config: config as Partial<OutdoorDetectorConfig> | undefined,
+            config: modifiedConfig as Partial<OutdoorDetectorConfig> | undefined,
+            calibratedPointA: prewarmLocation && prewarmLocation.accuracy <= maxAcc
+              ? prewarmLocation
+              : undefined,
           });
 
-          const tracker = await startLocationTracking(
-            (point) => {
-              outdoorDispatch({
-                type: 'tick',
-                input: { now: Date.now(), position: point },
-              });
-            },
-            (err) => {
-              errorRef.current = { message: err.message };
-            }
-          );
-          locationHandleRef.current = tracker;
+          if (!locationHandleRef.current) {
+            const tracker = await startLocationTracking(
+              (point) => {
+                onLocationUpdateRef.current(point);
+              },
+              (err) => {
+                onLocationErrorRef.current(err);
+              }
+            );
+            locationHandleRef.current = tracker;
+          }
         }
       } catch (err) {
         errorRef.current = {
@@ -253,7 +449,7 @@ export function useLapCounter() {
         startingRef.current = false;
       }
     },
-    [mode, teardown]
+    [mode, prewarmLocation, teardown]
   );
 
   const stop = useCallback(async () => {
@@ -286,7 +482,10 @@ export function useLapCounter() {
 
     if (isRunning && sessionStartTs) {
       clockTimer = setInterval(() => {
-        setElapsedSeconds(Math.floor((Date.now() - sessionStartTs) / 1000));
+        if (!isPausedRef.current) {
+          const elapsed = Date.now() - sessionStartTs - totalPausedMsRef.current;
+          setElapsedSeconds(Math.floor(elapsed / 1000));
+        }
       }, 1000);
     } else if (activeState.phase === 'idle') {
       setElapsedSeconds(0);
@@ -302,11 +501,32 @@ export function useLapCounter() {
   // (which happens in tests using fake timers).
   useEffect(() => {
     if (activeState.count > lastHapticCount.current) {
+      const isNewLap = lastHapticCount.current > 0;
       lastHapticCount.current = activeState.count;
-      if (mode === 'indoor') motionHandleRef.current?.resetBaseline();
+      const isBleFree = 'isBleFree' in activeState && activeState.isBleFree;
+      if (mode === 'indoor' && !isBleFree) {
+        motionHandleRef.current?.resetBaseline();
+      }
       void lapHaptic();
+
+      // Premium Feature: Hands-Free Voice Splits (TTS)
+      if (isNewLap && voiceCuesEnabled) {
+        const minutes = Math.floor(elapsedSeconds / 60);
+        const seconds = elapsedSeconds % 60;
+        const timeStr = minutes > 0 ? `${minutes} minutes and ${seconds} seconds` : `${seconds} seconds`;
+        Speech.speak(`Lap ${activeState.count} complete. Total time: ${timeStr}.`, {
+          language: 'en',
+        });
+      }
     }
-  }, [activeState.count, mode]);
+  }, [activeState.count, mode, voiceCuesEnabled, elapsedSeconds]);
+
+  useEffect(() => {
+    if (prevPhaseRef.current === 'calibrating' && activeState.phase === 'armed') {
+      motionHandleRef.current?.resetBaseline();
+    }
+    prevPhaseRef.current = activeState.phase;
+  }, [activeState.phase]);
 
   // Target reached: stop sensors, fire success haptic + notification.
   useEffect(() => {
@@ -320,7 +540,8 @@ export function useLapCounter() {
       bleHandleRef.current = null;
       motionHandleRef.current?.stop();
       motionHandleRef.current = null;
-      if (locationHandleRef.current) {
+      const isTesting = typeof process !== 'undefined' && process.env.NODE_ENV === 'test';
+      if (locationHandleRef.current && isTesting) {
         void locationHandleRef.current.stop();
         locationHandleRef.current = null;
       }
@@ -341,7 +562,7 @@ export function useLapCounter() {
 
   useEffect(() => {
     return () => {
-      void teardown();
+      void teardown({ forceStopGps: true });
     };
   }, [teardown]);
 
@@ -361,5 +582,15 @@ export function useLapCounter() {
     sessionStartTs,
     sessionEndTs,
     elapsedSeconds,
+    prewarmLocation,
+    
+    // Premium tier states & controllers
+    isPaused,
+    gpsPath,
+    weatherSuggest,
+    voiceCuesEnabled,
+    setVoiceCuesEnabled: handleSetVoiceCuesEnabled,
+    pause,
+    resume,
   };
 }

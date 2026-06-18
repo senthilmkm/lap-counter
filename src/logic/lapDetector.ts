@@ -42,8 +42,8 @@ export const DEFAULT_CONFIG: DetectorConfig = {
   calibrationMs: 5000,
   similarityNearThreshold: 0.75,
   similarityFarThreshold: 0.4,
-  magneticDeltaThreshold: 5,
-  displacementThreshold: 6,
+  magneticDeltaThreshold: 8,
+  displacementThreshold: 5,
   lapDebounceMs: 10000,
   refinementAlpha: 0.3,
 };
@@ -80,12 +80,25 @@ export type DetectorState = {
   stepsAtLapStart?: number;
   /** Steps walked at the moment max displacement was reached in the current lap */
   maxDisplacementSteps?: number;
+  /** Fused yaw at the start of the current lap/leg */
+  yawAtLapStart?: number;
+  /** Whether the turn at Point B has been completed in the current lap */
+  hasTurned?: boolean;
+  /** Minimum displacement magnitude observed during the return leg */
+  minDisplacementInLeg?: number;
+  /** Calibrated step count per lap */
+  lapSteps?: number;
+  /** Displacement coordinates at the start of the current lap */
+  displacementAtLapStart?: { x: number; y: number };
+  /** Total cumulative steps since start of session */
+  steps?: number;
 };
 
 export type DetectorInput = {
   now: number;
   observation: Fingerprint;
   displacementMagnitude: number;
+  displacement?: { x: number; y: number };
   gyroZRate?: number;
   gyroYaw?: number;
   steps?: number;
@@ -118,6 +131,12 @@ export function createInitialState(
     lastDisplacementThreshold: 10,
     stepsAtLapStart: 0,
     maxDisplacementSteps: 0,
+    yawAtLapStart: 0,
+    hasTurned: false,
+    minDisplacementInLeg: Infinity,
+    lapSteps: undefined,
+    displacementAtLapStart: undefined,
+    steps: 0,
   };
 }
 
@@ -152,6 +171,12 @@ function averageSamples(samples: Fingerprint[]): Fingerprint {
   return { bleDevices, magneticMagnitude };
 }
 
+function angleDiff(a: number, b: number): number {
+  let diff = Math.abs(a - b) % (2 * Math.PI);
+  if (diff > Math.PI) diff = 2 * Math.PI - diff;
+  return diff;
+}
+
 /**
  * Pure reducer driving the lap-detection state machine. The owning hook
  * feeds it `tick` actions on every sensor cadence and reacts to state
@@ -176,7 +201,7 @@ export function reducer(state: DetectorState, action: DetectorAction): DetectorS
       return createInitialState(state.config);
 
     case 'tick': {
-      const { now, observation, displacementMagnitude, gyroZRate, gyroYaw, steps } = action.input;
+      const { now, observation, displacementMagnitude, displacement, gyroZRate, gyroYaw, steps } = action.input;
 
       if (state.phase === 'idle' || state.phase === 'finished') {
         return state;
@@ -199,11 +224,16 @@ export function reducer(state: DetectorState, action: DetectorAction): DetectorS
             lastMagneticDelta: 0,
             lastDisplacementMagnitude: 0,
             lastGyroZRate: gyroZRate,
-            lastGyroYaw: gyroYaw,
+            lastGyroYaw: 0,
             isBleFree,
             stepsAtLapStart: steps ?? 0,
             maxDisplacement: 0,
             maxDisplacementSteps: 0,
+            yawAtLapStart: 0,
+            hasTurned: false,
+            minDisplacementInLeg: Infinity,
+            displacementAtLapStart: { x: 0, y: 0 },
+            steps: steps ?? state.steps,
           };
         }
         return {
@@ -217,32 +247,157 @@ export function reducer(state: DetectorState, action: DetectorAction): DetectorS
 
       // armed | away | approaching
       const isBleFree = state.isBleFree ?? false;
+      const cfg = state.config;
+      const sinceLap =
+        state.lastLapAt == null ? Infinity : now - state.lastLapAt;
+      const debounceOK = sinceLap >= cfg.lapDebounceMs;
+
+      if (isBleFree) {
+        const currentYaw = gyroYaw ?? 0;
+        const stepsCount = steps ?? 0;
+        
+        let nextStepsAtLapStart = state.stepsAtLapStart ?? 0;
+        if (stepsCount < nextStepsAtLapStart) {
+          nextStepsAtLapStart = 0;
+        }
+        const stepsSinceLastLap = stepsCount - nextStepsAtLapStart;
+        
+        // Calculate relative displacement magnitude from start of current lap
+        let relDispMag = displacementMagnitude;
+        if (displacement && state.displacementAtLapStart) {
+          const dx = displacement.x - state.displacementAtLapStart.x;
+          const dy = displacement.y - state.displacementAtLapStart.y;
+          relDispMag = Math.sqrt(dx * dx + dy * dy);
+        }
+        
+        const magDelta = magneticDelta(observation, state.pointA);
+        const diffFromStart = angleDiff(currentYaw, state.yawAtLapStart ?? 0);
+        
+        let nextMaxDisplacement = state.maxDisplacement ?? 0;
+        if (relDispMag > nextMaxDisplacement) {
+          nextMaxDisplacement = relDispMag;
+        }
+        
+        let reachedA = false;
+        let nextLapSteps = state.lapSteps;
+        let nextPhase = state.phase;
+        
+        // Phase transition logic
+        if (nextPhase === 'armed') {
+          if (relDispMag > 8.0 || stepsSinceLastLap >= 8) {
+            nextPhase = 'away';
+          }
+        }
+        if (nextPhase === 'away') {
+          if (nextLapSteps !== undefined) {
+            const approachingSteps = Math.max(12, Math.floor(0.90 * nextLapSteps));
+            if (stepsSinceLastLap >= approachingSteps) {
+              nextPhase = 'approaching';
+            }
+          }
+        }
+        if (nextPhase === 'approaching') {
+          if (nextLapSteps !== undefined) {
+            const approachingSteps = Math.max(12, Math.floor(0.85 * nextLapSteps));
+            if (stepsSinceLastLap < approachingSteps) {
+              nextPhase = 'away';
+            }
+          }
+        }
+
+        // Lap detection logic (triggers in approaching phase for Lap 2+, or away phase with steps >= 20 for Lap 1)
+        const canTriggerSensor = nextLapSteps === undefined
+          ? (nextPhase === 'away' && stepsSinceLastLap >= 20)
+          : (nextPhase === 'approaching');
+
+        if (canTriggerSensor) {
+          const isSensorMatch = magDelta <= cfg.magneticDeltaThreshold &&
+            relDispMag <= cfg.displacementThreshold &&
+            diffFromStart < 0.8;
+            
+          if (nextLapSteps !== undefined) {
+            const sensorStepGate = Math.max(12, Math.floor(0.98 * nextLapSteps));
+            const isFallbackMatch = stepsSinceLastLap >= Math.floor(1.25 * nextLapSteps);
+            if ((isSensorMatch && stepsSinceLastLap >= sensorStepGate) || isFallbackMatch) {
+              reachedA = true;
+              nextLapSteps = Math.round(0.8 * nextLapSteps + 0.2 * stepsSinceLastLap);
+            }
+          } else {
+            const isFallbackMatch = stepsSinceLastLap >= 80;
+            if (isSensorMatch || isFallbackMatch) {
+              reachedA = true;
+              nextLapSteps = stepsSinceLastLap;
+            }
+          }
+        } else {
+          // If we are not in the triggering phase, we can still trigger via absolute fallback
+          // to prevent getting stuck if they walked way too many steps without triggering.
+          if (nextLapSteps !== undefined) {
+            const isFallbackMatch = stepsSinceLastLap >= Math.floor(1.25 * nextLapSteps);
+            if (isFallbackMatch) {
+              reachedA = true;
+              nextLapSteps = Math.round(0.8 * nextLapSteps + 0.2 * stepsSinceLastLap);
+            }
+          } else {
+            const isFallbackMatch = stepsSinceLastLap >= 80;
+            if (isFallbackMatch) {
+              reachedA = true;
+              nextLapSteps = stepsSinceLastLap;
+            }
+          }
+        }
+        
+        const baseUpdate: Partial<DetectorState> = {
+          lastSimilarity: 1,
+          lastMagneticDelta: magDelta,
+          lastDisplacementMagnitude: relDispMag,
+          lastGyroZRate: gyroZRate,
+          lastGyroYaw: gyroYaw,
+          maxDisplacement: nextMaxDisplacement,
+          lapSteps: nextLapSteps,
+          stepsAtLapStart: nextStepsAtLapStart,
+          displacementAtLapStart: state.displacementAtLapStart ?? displacement ?? { x: 0, y: 0 },
+          steps: steps ?? state.steps,
+        };
+        
+        if (reachedA && debounceOK) {
+          const newCount = state.count + 1;
+          const finished = newCount >= cfg.targetLaps;
+          return {
+            ...state,
+            ...baseUpdate,
+            count: newCount,
+            lastLapAt: now,
+            phase: finished ? 'finished' : 'armed',
+            maxDisplacement: 0,
+            stepsAtLapStart: stepsCount,
+            yawAtLapStart: currentYaw,
+            displacementAtLapStart: displacement ?? { x: 0, y: 0 },
+          };
+        }
+        
+        return {
+          ...state,
+          ...baseUpdate,
+          phase: nextPhase,
+        };
+      }
+
+      // Standard BLE + magnetic + PDR state machine (isBleFree === false)
       const sim = similarity(observation, state.pointA);
       const magDelta = magneticDelta(observation, state.pointA);
-
       const stepsSinceLastLap = steps ?? 0;
+      
       let nextMaxDisplacement = state.maxDisplacement ?? 0;
       let nextMaxDisplacementSteps = state.maxDisplacementSteps ?? 0;
       if (displacementMagnitude > nextMaxDisplacement) {
         nextMaxDisplacement = displacementMagnitude;
         nextMaxDisplacementSteps = stepsSinceLastLap;
       }
-
-      const cfg = state.config;
-      const sinceLap =
-        state.lastLapAt == null ? Infinity : now - state.lastLapAt;
-      const debounceOK = sinceLap >= cfg.lapDebounceMs;
-
-      // Adjust thresholds if running in BLE-free MIF mode
-      const magThreshold = isBleFree ? 15.0 : cfg.magneticDeltaThreshold;
-
-      // Calculate dynamic displacement return threshold to handle both short hallway walks
-      // (where user walks 6-8m and return threshold should be tighter, e.g. 4m) and
-      // long walks (where drift occurs and threshold should be looser, e.g. 8m).
-      const displacementThreshold = isBleFree
-        ? Math.max(4.0, Math.min(8.0, nextMaxDisplacement * 0.45))
-        : cfg.displacementThreshold;
-
+      
+      const magThreshold = cfg.magneticDeltaThreshold;
+      const displacementThreshold = cfg.displacementThreshold;
+      
       const baseUpdate: Partial<DetectorState> = {
         lastSimilarity: sim,
         lastMagneticDelta: magDelta,
@@ -252,20 +407,15 @@ export function reducer(state: DetectorState, action: DetectorAction): DetectorS
         maxDisplacement: nextMaxDisplacement,
         maxDisplacementSteps: nextMaxDisplacementSteps,
         lastDisplacementThreshold: displacementThreshold,
+        steps: steps ?? state.steps,
       };
 
-      const minStepsRequired = Math.max(10, Math.floor(1.35 * nextMaxDisplacementSteps));
-      const stepGateOk = !isBleFree || steps === undefined || stepsSinceLastLap >= minStepsRequired;
-
       const isNear =
-        (isBleFree || sim >= cfg.similarityNearThreshold) &&
+        sim >= cfg.similarityNearThreshold &&
         magDelta <= magThreshold &&
-        displacementMagnitude <= displacementThreshold &&
-        stepGateOk;
+        displacementMagnitude <= displacementThreshold;
 
-      const isFar = isBleFree
-        ? displacementMagnitude >= 4.0
-        : sim <= cfg.similarityFarThreshold;
+      const isFar = sim <= cfg.similarityFarThreshold;
 
       if (state.phase === 'armed') {
         if (isFar) {
@@ -275,9 +425,7 @@ export function reducer(state: DetectorState, action: DetectorAction): DetectorS
       }
 
       if (state.phase === 'away') {
-        const hasLeftAwayZone = isBleFree
-          ? displacementMagnitude < 4.0
-          : sim > cfg.similarityFarThreshold;
+        const hasLeftAwayZone = sim > cfg.similarityFarThreshold;
         if (hasLeftAwayZone) {
           return { ...state, ...baseUpdate, phase: 'approaching' };
         }
@@ -303,9 +451,9 @@ export function reducer(state: DetectorState, action: DetectorAction): DetectorS
           pointA: refinedA,
           lastLapAt: now,
           phase: finished ? 'finished' : 'armed',
-          maxDisplacement: 0, // Reset for the next lap!
-          maxDisplacementSteps: 0, // Reset for the next lap!
-          stepsAtLapStart: 0, // Reset for the next lap!
+          maxDisplacement: 0,
+          maxDisplacementSteps: 0,
+          stepsAtLapStart: 0,
         };
       }
       return { ...state, ...baseUpdate };

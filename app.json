@@ -21,46 +21,17 @@
           "bluetooth-central",
           "location",
           "fetch",
-          "processing",
-          "bluetooth-central",
-          "location",
-          "fetch",
           "processing"
         ],
         "BGTaskSchedulerPermittedIdentifiers": [
-          "com.senth.lapcounter.background-scan",
           "com.senth.lapcounter.background-scan"
         ]
       },
-      "buildNumber": "4"
+      "buildNumber": "5"
     },
     "android": {
       "package": "com.senth.lapcounter",
       "permissions": [
-        "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION",
-        "ACCESS_BACKGROUND_LOCATION",
-        "BLUETOOTH",
-        "BLUETOOTH_ADMIN",
-        "BLUETOOTH_SCAN",
-        "BLUETOOTH_CONNECT",
-        "ACTIVITY_RECOGNITION",
-        "VIBRATE",
-        "RECEIVE_BOOT_COMPLETED",
-        "WAKE_LOCK",
-        "FOREGROUND_SERVICE",
-        "FOREGROUND_SERVICE_LOCATION",
-        "POST_NOTIFICATIONS",
-        "android.permission.RECEIVE_BOOT_COMPLETED",
-        "android.permission.WAKE_LOCK",
-        "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.ACCESS_BACKGROUND_LOCATION",
-        "android.permission.FOREGROUND_SERVICE",
-        "android.permission.FOREGROUND_SERVICE_LOCATION",
-        "android.permission.BLUETOOTH",
-        "android.permission.BLUETOOTH_ADMIN",
-        "android.permission.BLUETOOTH_CONNECT",
         "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION",
         "ACCESS_BACKGROUND_LOCATION",
@@ -117,7 +88,9 @@
           ],
           "bluetoothAlwaysPermission": "Used indoors to fingerprint your starting location by sensing nearby Bluetooth devices."
         }
-      ]
+      ],
+      "expo-sqlite",
+      "expo-sharing"
     ],
     "extra": {
       "eas": {

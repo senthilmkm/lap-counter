@@ -41,3 +41,17 @@ export async function targetReachedHaptic(): Promise<void> {
 export async function controlHaptic(): Promise<void> {
   await safe(() => Haptics.selectionAsync());
 }
+
+/** Triggered on successful Premium purchase. */
+export async function triggerSuccessHaptic(): Promise<void> {
+  await safe(() =>
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+  );
+}
+
+/** Triggered on failed Premium purchase. */
+export async function triggerFailureHaptic(): Promise<void> {
+  await safe(() =>
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
+  );
+}

@@ -103,7 +103,8 @@ export async function startMotionTracker(): Promise<MotionTrackerHandle> {
         }
 
         // Project new steps onto current heading (relative to baseline yaw).
-        const heading = cumulativeYaw - yawBaseline;
+        // Use rawGyroYaw - gyroBaseline (pure integrated gyro heading) to be 100% immune to magnetic anomalies.
+        const heading = rawGyroYaw - gyroBaseline;
         const dx = Math.sin(heading) * newSteps * strideLength;
         const dy = Math.cos(heading) * newSteps * strideLength;
         displacement = { x: displacement.x + dx, y: displacement.y + dy };

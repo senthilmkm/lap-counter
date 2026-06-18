@@ -24,6 +24,7 @@ function tickWith(state: ReturnType<typeof createInitialState>, args: {
   now: number;
   observation: Fingerprint;
   displacementMagnitude?: number;
+  displacement?: { x: number; y: number };
 }) {
   return reducer(state, {
     type: 'tick',
@@ -31,6 +32,7 @@ function tickWith(state: ReturnType<typeof createInitialState>, args: {
       now: args.now,
       observation: args.observation,
       displacementMagnitude: args.displacementMagnitude ?? 0,
+      displacement: args.displacement,
     },
   });
 }
@@ -346,7 +348,7 @@ describe('lapDetector.statusLabel', () => {
 });
 
 describe('lapDetector.reducer — BLE-free MIF mode fallback', () => {
-  it('calibrates with empty BLE and counts a lap using only magnetic + displacement', () => {
+  it('calibrates with empty BLE and counts a lap using step calibration and magnetic window', () => {
     const emptyPoint = { bleDevices: new Map<string, number>(), magneticMagnitude: 45.0 };
     let s = reducer(createInitialState(), { type: 'start' });
     
@@ -354,110 +356,165 @@ describe('lapDetector.reducer — BLE-free MIF mode fallback', () => {
     for (let i = 0; i < 5; i++) {
       s = reducer(s, {
         type: 'tick',
-        input: { now: i * 1000, observation: emptyPoint, displacementMagnitude: 0 }
+        input: { now: i * 1000, observation: emptyPoint, displacementMagnitude: 0, displacement: { x: 0, y: 0 }, steps: 0, gyroYaw: 0 }
       });
     }
-    // Transition to armed
     s = reducer(s, {
       type: 'tick',
-      input: { now: 5000, observation: emptyPoint, displacementMagnitude: 0 }
+      input: { now: 5000, observation: emptyPoint, displacementMagnitude: 0, displacement: { x: 0, y: 0 }, steps: 0, gyroYaw: 0 }
     });
     
     expect(s.phase).toBe('armed');
     expect(s.isBleFree).toBe(true);
 
-    // Stays armed if displacement remains small
+    // Stays armed if steps are low
     s = reducer(s, {
       type: 'tick',
-      input: { now: 6000, observation: emptyPoint, displacementMagnitude: 2.0 }
+      input: { now: 6000, observation: emptyPoint, displacementMagnitude: 2.0, displacement: { x: 2.0, y: 0 }, steps: 4, gyroYaw: 0 }
     });
     expect(s.phase).toBe('armed');
 
-    // Transitions to away once displacement is >= 5.0m
+    // Transitions to away once steps >= 8
     s = reducer(s, {
       type: 'tick',
-      input: { now: 7000, observation: emptyPoint, displacementMagnitude: 6.0 }
+      input: { now: 7000, observation: emptyPoint, displacementMagnitude: 6.0, displacement: { x: 6.0, y: 0 }, steps: 10, gyroYaw: 3.14 }
+    });
+    expect(s.phase).toBe('away');
+    expect(s.lapSteps).toBeUndefined();
+
+    // Still away
+    s = reducer(s, {
+      type: 'tick',
+      input: { now: 8000, observation: emptyPoint, displacementMagnitude: 3.0, displacement: { x: 3.0, y: 0 }, steps: 18, gyroYaw: 3.14 }
     });
     expect(s.phase).toBe('away');
 
-    // Transitions to approaching once user walks back (displacement < 3.5m)
+    // Counts a lap once displacement <= 6.0m and magnetic magnitude matches start
     s = reducer(s, {
       type: 'tick',
-      input: { now: 8000, observation: emptyPoint, displacementMagnitude: 3.0 }
-    });
-    expect(s.phase).toBe('approaching');
-
-    // Counts a lap once displacement <= 3.0m and magnetic magnitude matches Point A
-    // (within 15.0 uT).
-    const matchingPoint = { bleDevices: new Map<string, number>(), magneticMagnitude: 47.0 }; // delta = 2.0 uT <= 15.0 uT
-    s = reducer(s, {
-      type: 'tick',
-      input: { now: 18000, observation: matchingPoint, displacementMagnitude: 1.0 } // 13s elapsed since start (passes 10s debounce)
+      input: { now: 18000, observation: emptyPoint, displacementMagnitude: 1.0, displacement: { x: 1.0, y: 0 }, steps: 22, gyroYaw: 0 }
     });
     
     expect(s.count).toBe(1);
     expect(s.phase).toBe('armed');
+    expect(s.lapSteps).toBe(22);
   });
 
-  it('BLE-free MIF mode: gates lap counting using step count', () => {
+  it('BLE-free mode: gates lap counting using step count threshold and fallback', () => {
     const emptyPoint = { bleDevices: new Map<string, number>(), magneticMagnitude: 45.0 };
+    const wrongPoint = { bleDevices: new Map<string, number>(), magneticMagnitude: 100.0 };
     let s = reducer(createInitialState(), { type: 'start' });
     
     // Calibrate with steps = 0
     for (let i = 0; i < 5; i++) {
       s = reducer(s, {
         type: 'tick',
-        input: { now: i * 1000, observation: emptyPoint, displacementMagnitude: 0, steps: 0 }
+        input: { now: i * 1000, observation: emptyPoint, displacementMagnitude: 0, displacement: { x: 0, y: 0 }, steps: 0, gyroYaw: 0 }
       });
     }
     s = reducer(s, {
       type: 'tick',
-      input: { now: 5000, observation: emptyPoint, displacementMagnitude: 0, steps: 0 }
+      input: { now: 5000, observation: emptyPoint, displacementMagnitude: 0, displacement: { x: 0, y: 0 }, steps: 0, gyroYaw: 0 }
     });
     
     expect(s.phase).toBe('armed');
-    expect(s.isBleFree).toBe(true);
 
-    // Walk out to 8.0m, steps = 14 (14 steps out)
+    // Complete Lap 1 to calibrate lapSteps to 20 steps
     s = reducer(s, {
       type: 'tick',
-      input: { now: 6000, observation: emptyPoint, displacementMagnitude: 8.0, steps: 14 }
-    });
-    expect(s.phase).toBe('away');
-    expect(s.maxDisplacement).toBe(8.0);
-    expect(s.maxDisplacementSteps).toBe(14);
-
-    // Walk back 1 step: displacement = 7.5m, steps = 15. Remains in away.
-    s = reducer(s, {
-      type: 'tick',
-      input: { now: 7000, observation: emptyPoint, displacementMagnitude: 7.5, steps: 15 }
-    });
-    expect(s.phase).toBe('away');
-
-    // Walk back halfway: displacement = 3.0m (which is < 4.0m), but steps = 15 (total 15 steps).
-    // Minimum steps required = Math.max(10, Math.floor(1.35 * 14)) = Math.max(10, 18) = 18 steps.
-    // Since 15 steps < 18, the step gate blocks it from counting a lap.
-    s = reducer(s, {
-      type: 'tick',
-      input: { now: 8000, observation: emptyPoint, displacementMagnitude: 3.0, steps: 15 }
-    });
-    expect(s.phase).toBe('approaching'); // transitions to approaching because displacement < 4.0m
-    expect(s.count).toBe(0); // but does NOT count a lap because steps (15) < 18!
-
-    // Try to count: displacement = 1.0m, steps = 15. Still blocked by step gate.
-    s = reducer(s, {
-      type: 'tick',
-      input: { now: 9000, observation: emptyPoint, displacementMagnitude: 1.0, steps: 15 }
-    });
-    expect(s.phase).toBe('approaching');
-    expect(s.count).toBe(0);
-
-    // Now steps = 19 (which is >= 18). Lap counts!
-    s = reducer(s, {
-      type: 'tick',
-      input: { now: 19000, observation: emptyPoint, displacementMagnitude: 1.0, steps: 19 } // 13s elapsed since start (passes 10s debounce)
+      input: { now: 6000, observation: emptyPoint, displacementMagnitude: 1.0, displacement: { x: 1.0, y: 0 }, steps: 20, gyroYaw: 0 }
     });
     expect(s.count).toBe(1);
+    expect(s.lapSteps).toBe(20);
+    expect(s.stepsAtLapStart).toBe(20);
+
+    // Walk out: stepsSinceLastLap = 8. Phase is away.
+    // Raw displacement vector is continuous: { x: 6.0, y: 0 }. Relative is 5.0m.
+    s = reducer(s, {
+      type: 'tick',
+      input: { now: 7000, observation: emptyPoint, displacementMagnitude: 5.0, displacement: { x: 6.0, y: 0 }, steps: 28, gyroYaw: 3.14 }
+    });
+    expect(s.phase).toBe('away');
+    expect(s.count).toBe(1);
+
+    // Enter step window: stepsSinceLastLap = 18 (0.90 * 20 = 18). Phase is approaching.
+    // Raw displacement vector is continuous: { x: 5.0, y: 0 }. Relative is 4.0m.
+    s = reducer(s, {
+      type: 'tick',
+      input: { now: 8000, observation: emptyPoint, displacementMagnitude: 4.0, displacement: { x: 5.0, y: 0 }, steps: 38, gyroYaw: 3.14 }
+    });
+    expect(s.phase).toBe('approaching');
+
+    // No lap yet with wrong magnetic magnitude (100.0 -> delta 55 > 5)
+    // Raw displacement relative to Lap 1 end is { x: 3.0, y: 0 } - { x: 1.0, y: 0 } = 2.0m.
+    s = reducer(s, {
+      type: 'tick',
+      input: { now: 9000, observation: wrongPoint, displacementMagnitude: 2.0, displacement: { x: 3.0, y: 0 }, steps: 40, gyroYaw: 3.14 }
+    });
+    expect(s.count).toBe(1);
+    expect(s.phase).toBe('approaching');
+
+    // Next tick: user reaches 46 steps (stepsSinceLastLap = 26 >= 1.25 * 20 = 25).
+    // Lap counts via step count fallback!
+    s = reducer(s, {
+      type: 'tick',
+      input: { now: 20000, observation: wrongPoint, displacementMagnitude: 2.0, displacement: { x: 3.0, y: 0 }, steps: 46, gyroYaw: 3.14 }
+    });
+    expect(s.count).toBe(2);
+    expect(s.phase).toBe('armed');
+    // lapSteps is refined using moving average: 0.8 * 20 + 0.2 * 26 = 21.2 -> 21
+    expect(s.lapSteps).toBe(21);
+  });
+
+  it('BLE-free mode: tracks multiple laps correctly with baseline resets', () => {
+    const emptyPoint = { bleDevices: new Map<string, number>(), magneticMagnitude: 45.0 };
+    let s = reducer(createInitialState(), { type: 'start' });
+    
+    // Calibrate
+    for (let i = 0; i < 5; i++) {
+      s = reducer(s, {
+        type: 'tick',
+        input: { now: i * 1000, observation: emptyPoint, displacementMagnitude: 0, displacement: { x: 0, y: 0 }, steps: 0, gyroYaw: 0 }
+      });
+    }
+    s = reducer(s, {
+      type: 'tick',
+      input: { now: 5000, observation: emptyPoint, displacementMagnitude: 0, displacement: { x: 0, y: 0 }, steps: 0, gyroYaw: 0 }
+    });
+    expect(s.phase).toBe('armed');
+
+    // === LAP 1 ===
+    // Walk out to 22 steps, magnetic matches, lap counts
+    s = reducer(s, {
+      type: 'tick',
+      input: { now: 18000, observation: emptyPoint, displacementMagnitude: 1.0, displacement: { x: 1.0, y: 0 }, steps: 22, gyroYaw: 0 }
+    });
+    expect(s.count).toBe(1);
+    expect(s.phase).toBe('armed');
+    expect(s.lapSteps).toBe(22);
+
+    // === LAP 2 ===
+    // Baseline is reset: steps and yaw are now relative to the new start point (0)
+    // Walk out: steps = 4 (stays armed)
+    s = reducer(s, {
+      type: 'tick',
+      input: { now: 19000, observation: emptyPoint, displacementMagnitude: 2.0, displacement: { x: 3.0, y: 0 }, steps: 4, gyroYaw: 0 }
+    });
+    expect(s.phase).toBe('armed');
+
+    // Steps = 20 (inside window since 20 >= 0.90 * 22 = 20) -> phase is approaching
+    s = reducer(s, {
+      type: 'tick',
+      input: { now: 20000, observation: emptyPoint, displacementMagnitude: 3.0, displacement: { x: 4.0, y: 0 }, steps: 20, gyroYaw: 3.14 }
+    });
+    expect(s.phase).toBe('approaching');
+
+    // Steps = 22 (inside window, mag matches) -> lap counts!
+    s = reducer(s, {
+      type: 'tick',
+      input: { now: 32000, observation: emptyPoint, displacementMagnitude: 1.0, displacement: { x: 2.0, y: 0 }, steps: 22, gyroYaw: 0 }
+    });
+    expect(s.count).toBe(2);
     expect(s.phase).toBe('armed');
   });
 });

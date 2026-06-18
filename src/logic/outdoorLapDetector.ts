@@ -80,7 +80,7 @@ export type OutdoorDetectorInput = {
 };
 
 export type OutdoorDetectorAction =
-  | { type: 'start'; config?: Partial<OutdoorDetectorConfig> }
+  | { type: 'start'; config?: Partial<OutdoorDetectorConfig>; calibratedPointA?: GeoPoint }
   | { type: 'tick'; input: OutdoorDetectorInput }
   | { type: 'stop' }
   | { type: 'reset' };
@@ -188,6 +188,14 @@ export function outdoorReducer(
   switch (action.type) {
     case 'start': {
       const config = { ...state.config, ...(action.config ?? {}) };
+      if (action.calibratedPointA) {
+        return {
+          ...createInitialOutdoorState(config),
+          phase: 'armed',
+          pointA: action.calibratedPointA,
+          calibrationStartedAt: null,
+        };
+      }
       return {
         ...createInitialOutdoorState(config),
         phase: 'calibrating',
