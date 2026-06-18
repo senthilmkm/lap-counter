@@ -1926,7 +1926,19 @@ function SettingsScreen(props: {
           </Pressable>
         </View>
         <View style={styles.toggleRow}>
-          <Text style={styles.toggleLabel}>Use BLE Beacons (Indoor)</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 }}>
+            <Text style={styles.toggleLabel}>Use BLE Beacons (Indoor)</Text>
+            <Pressable
+              onPress={() => Alert.alert(
+                'BLE Beacons vs Indoor Mode',
+                '• Indoor Mode (on home screen) is the general tracker for indoor gym loops, using magnetic + motion sensors to detect lap crossings BLE-free.\n\n• BLE Beacons Toggle (in settings) is an optional helper. If enabled, the app integrates nearby Bluetooth beacon signals to make lap detection even more accurate.\n\nTurn this OFF if you do not use physical beacons or want to save battery.'
+              )}
+              style={{ padding: 6, marginLeft: 4 }}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Text style={{ fontSize: 16, color: '#3b82f6' }}>ℹ️</Text>
+            </Pressable>
+          </View>
           <Switch
             value={!props.disableBle}
             onValueChange={(val) => props.onDisableBleChange(!val)}
