@@ -1164,16 +1164,10 @@ function ModePicker(props: {
           onPress={() => props.onChange('indoor')}
         />
         <ModeOption
-          label={props.isPremium ? "Outdoor" : "Outdoor 👑"}
+          label="Outdoor"
           hint="GPS"
           selected={props.mode === 'outdoor'}
-          onPress={() => {
-            if (!props.isPremium) {
-              props.onShowPaywall();
-            } else {
-              props.onChange('outdoor');
-            }
-          }}
+          onPress={() => props.onChange('outdoor')}
         />
       </View>
     </View>
