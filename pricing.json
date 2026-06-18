@@ -29,16 +29,16 @@
     "monthly": {
       "enabled": true,
       "productId": "goog_placeholder_monthly_product",
-      "priceLabel": "$2.99/mo",
-      "priceValue": 2.99,
+      "priceLabel": "$4.99/mo",
+      "priceValue": 4.99,
       "savePercentageLabel": ""
     },
     "annual": {
       "enabled": true,
       "productId": "goog_placeholder_annual_product",
-      "priceLabel": "$19.99/yr",
-      "priceValue": 19.99,
-      "savePercentageLabel": "Save over 40%!"
+      "priceLabel": "$29.99/yr",
+      "priceValue": 29.99,
+      "savePercentageLabel": "Save 50%!"
     }
   }
 }
