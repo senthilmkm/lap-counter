@@ -975,10 +975,10 @@
         <div class="pricing-display">
           <div class="pricing-price">
             <span class="pricing-currency">$</span>
-            <span id="priceValue">2.99</span>
+            <span id="priceValue">4.99</span>
             <span class="pricing-period" id="pricePeriod">/ month</span>
           </div>
-          <div class="pricing-saving" id="priceSaving" style="display: none;">Save over 40% vs Monthly!</div>
+          <div class="pricing-saving" id="priceSaving" style="display: none;">Save 50% vs Monthly!</div>
         </div>
 
         <table class="premium-features-table">
@@ -1123,13 +1123,13 @@
       if (tier === 'monthly') {
         btnMonthly.classList.add('active');
         btnAnnual.classList.remove('active');
-        priceValue.textContent = '2.99';
+        priceValue.textContent = '4.99';
         pricePeriod.textContent = '/ month';
         priceSaving.style.display = 'none';
       } else {
         btnMonthly.classList.remove('active');
         btnAnnual.classList.add('active');
-        priceValue.textContent = '19.99';
+        priceValue.textContent = '29.99';
         pricePeriod.textContent = '/ year';
         priceSaving.style.display = 'inline-block';
       }
