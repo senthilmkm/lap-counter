@@ -172,7 +172,7 @@ export default function App() {
     resume,
   } = useLapCounter();
 
-  const [activeTab, setActiveTab] = useState<'workout' | 'history' | 'analytics'>('workout');
+  const [activeTab, setActiveTab] = useState<'workout' | 'history' | 'analytics' | 'settings'>('workout');
   const [showPaywall, setShowPaywall] = useState(false);
   const [targetInput, setTargetInput] = useState(() => getSettingSync('targetLaps', String(defaultConfig.targetLaps)));
   const [showDebug, setShowDebug] = useState(false);
@@ -190,6 +190,15 @@ export default function App() {
   // Calories, mapType, and Achievements states
   const [weightInput, setWeightInput] = useState(() => getSettingSync('userWeight', '150'));
   const [weightUnit, setWeightUnit] = useState<'lbs' | 'kg'>(() => getSettingSync('userWeightUnit', 'lbs') as 'lbs' | 'kg');
+  const [weatherUnit, setWeatherUnit] = useState<'celsius' | 'fahrenheit'>(() => getSettingSync('weatherUnit', 'celsius') as 'celsius' | 'fahrenheit');
+
+  // Onboarding wizard (shown once on first install)
+  const [showOnboarding, setShowOnboarding] = useState(() => getSettingSync('onboardingDone', 'false') === 'false');
+
+  // 7-tap debug unlock for Settings tab
+  const [settingsTapCount, setSettingsTapCount] = useState(0);
+  const [settingsLastTapTime, setSettingsLastTapTime] = useState(0);
+  const [showSettingsDebug, setShowSettingsDebug] = useState(false);
   const [showInfoModal, setShowInfoModal] = useState(false);
   const [mapType, setMapType] = useState<'standard' | 'satellite'>('standard');
   const [selectedWorkoutPath, setSelectedWorkoutPath] = useState<GeoPoint[]>([]);
@@ -212,6 +221,26 @@ export default function App() {
   const handleWeightUnitChange = (val: 'lbs' | 'kg') => {
     setWeightUnit(val);
     saveSettingSync('userWeightUnit', val);
+  };
+
+  const handleWeatherUnitChange = (val: 'celsius' | 'fahrenheit') => {
+    setWeatherUnit(val);
+    saveSettingSync('weatherUnit', val);
+  };
+
+  const handleVersionTap = () => {
+    const now = Date.now();
+    if (now - settingsLastTapTime > 3000) {
+      setSettingsTapCount(1);
+    } else {
+      const newCount = settingsTapCount + 1;
+      setSettingsTapCount(newCount);
+      if (newCount >= 7) {
+        setShowSettingsDebug(true);
+        setSettingsTapCount(0);
+      }
+    }
+    setSettingsLastTapTime(now);
   };
 
   const parsedWeight = useMemo(() => {
@@ -536,19 +565,39 @@ export default function App() {
   const handleExportCSV = async (workout: DBWorkout) => {
     const rawPath = getWorkoutPath(workout.id);
     const laps: ExporterLap[] = [];
-    
-    // Construct laps data based on total count
+
+    // For outdoor workouts: compute total GPS distance and distribute per lap
+    let totalGpsDistM = 0;
+    if (workout.mode === 'outdoor' && rawPath.length > 1) {
+      for (let i = 1; i < rawPath.length; i++) {
+        totalGpsDistM += haversineDistance(
+          { latitude: rawPath[i - 1].latitude, longitude: rawPath[i - 1].longitude, accuracy: rawPath[i - 1].accuracy ?? 0 },
+          { latitude: rawPath[i].latitude, longitude: rawPath[i].longitude, accuracy: rawPath[i].accuracy ?? 0 }
+        );
+      }
+    }
+
     for (let i = 1; i <= workout.totalLaps; i++) {
       const dur = Math.round(workout.endTime - workout.startTime) / 1000 / workout.totalLaps;
-      const st = workout.steps / workout.totalLaps;
-      const cad = workout.cadence || 160;
-      laps.push({
-        lapNumber: i,
-        durationSeconds: dur,
-        steps: Math.round(st),
-        cadence: cad,
-        yawDrift: workout.mode === 'indoor' ? workout.yawDrift / workout.totalLaps : 0,
-      });
+      if (workout.mode === 'outdoor') {
+        laps.push({
+          lapNumber: i,
+          durationSeconds: Math.round(dur),
+          steps: 0,
+          cadence: 0,
+          distanceMeters: totalGpsDistM > 0 ? totalGpsDistM / workout.totalLaps : undefined,
+        });
+      } else {
+        const st = workout.steps / workout.totalLaps;
+        const cad = workout.cadence || 160;
+        laps.push({
+          lapNumber: i,
+          durationSeconds: Math.round(dur),
+          steps: Math.round(st),
+          cadence: cad,
+          yawDrift: workout.yawDrift / workout.totalLaps,
+        });
+      }
     }
 
     const content = generateCSV(laps);
@@ -614,6 +663,7 @@ export default function App() {
                   }}
                   prewarmLocation={prewarmLocation}
                   weatherSuggest={weatherSuggest}
+                  weatherUnit={weatherUnit}
                   voiceCuesEnabled={voiceCuesEnabled}
                   onVoiceCuesChange={setVoiceCuesEnabled}
                   isPremium={isPremium}
@@ -688,53 +738,6 @@ export default function App() {
               {error && (
                 <View style={styles.errorBox}>
                   <Text style={styles.errorText}>⚠ {error.message}</Text>
-                </View>
-              )}
-
-              <View style={styles.debugToggle}>
-                <Text style={styles.debugToggleLabel}>Debug</Text>
-                <Switch
-                  value={showDebug}
-                  onValueChange={setShowDebug}
-                  trackColor={{ true: '#34d399', false: '#374151' }}
-                />
-              </View>
-
-              {showDebug && (
-                <View style={styles.debugSubControls}>
-                  <Text style={styles.debugSubTitle}>Simulate Subscriptions</Text>
-                  <View style={styles.debugSubRow}>
-                    <Pressable
-                      onPress={() => {
-                        setDebugSubTier('free');
-                        sub.setIsPremium(false);
-                        sub.setSubTier('free');
-                      }}
-                      style={[styles.debugSubBtn, debugSubTier === 'free' && styles.debugSubBtnActive]}
-                    >
-                      <Text style={styles.debugSubBtnText}>Free</Text>
-                    </Pressable>
-                    <Pressable
-                      onPress={() => {
-                        setDebugSubTier('monthly');
-                        sub.setIsPremium(true);
-                        sub.setSubTier('monthly');
-                      }}
-                      style={[styles.debugSubBtn, debugSubTier === 'monthly' && styles.debugSubBtnActive]}
-                    >
-                      <Text style={styles.debugSubBtnText}>Monthly</Text>
-                    </Pressable>
-                    <Pressable
-                      onPress={() => {
-                        setDebugSubTier('annual');
-                        sub.setIsPremium(true);
-                        sub.setSubTier('annual');
-                      }}
-                      style={[styles.debugSubBtn, debugSubTier === 'annual' && styles.debugSubBtnActive]}
-                    >
-                      <Text style={styles.debugSubBtnText}>Annual</Text>
-                    </Pressable>
-                  </View>
                 </View>
               )}
 
@@ -860,6 +863,42 @@ export default function App() {
             </ScrollView>
           )}
 
+          {activeTab === 'settings' && (
+            <SettingsScreen
+              weightInput={weightInput}
+              onWeightInputChange={handleWeightInputChange}
+              onWeightInputBlur={handleWeightInputBlur}
+              weightUnit={weightUnit}
+              onWeightUnitChange={handleWeightUnitChange}
+              weatherUnit={weatherUnit}
+              onWeatherUnitChange={handleWeatherUnitChange}
+              voiceCuesEnabled={voiceCuesEnabled}
+              onVoiceCuesChange={setVoiceCuesEnabled}
+              disableBle={disableBle}
+              onDisableBleChange={(val) => {
+                setDisableBle(val);
+                saveSettingSync('disableBle', String(val));
+              }}
+              isPremium={isPremium}
+              subTier={subTier}
+              onShowPaywall={() => setShowPaywall(true)}
+              onVersionTap={handleVersionTap}
+              settingsTapCount={settingsTapCount}
+              showSettingsDebug={showSettingsDebug}
+              debugSubTier={debugSubTier}
+              onDebugSubTierChange={(tier) => {
+                setDebugSubTier(tier);
+                sub.setIsPremium(tier !== 'free');
+                sub.setSubTier(tier);
+              }}
+              mode={mode}
+              detectorState={state}
+              outdoorState={mode === 'outdoor' ? state as OutdoorDetectorState : null}
+              debugLogs={debugLogs}
+              onShowInfoModal={() => setShowInfoModal(true)}
+            />
+          )}
+
           {/* Accidental Tap Prevention: Only show bottom menu tabs when NOT running a workout */}
           {isSetup && (
             <View style={styles.tabBar}>
@@ -870,7 +909,7 @@ export default function App() {
                 <Text style={styles.tabIcon}>⚡</Text>
                 <Text style={styles.tabLabel}>Workout</Text>
               </Pressable>
-              
+
               <Pressable
                 onPress={() => setActiveTab('history')}
                 style={[styles.tabBarItem, activeTab === 'history' && styles.tabBarItemActive]}
@@ -878,13 +917,21 @@ export default function App() {
                 <Text style={styles.tabIcon}>📂</Text>
                 <Text style={styles.tabLabel}>History</Text>
               </Pressable>
-              
+
               <Pressable
                 onPress={() => setActiveTab('analytics')}
                 style={[styles.tabBarItem, activeTab === 'analytics' && styles.tabBarItemActive]}
               >
                 <Text style={styles.tabIcon}>📈</Text>
                 <Text style={styles.tabLabel}>Analytics</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() => setActiveTab('settings')}
+                style={[styles.tabBarItem, activeTab === 'settings' && styles.tabBarItemActive]}
+              >
+                <Text style={styles.tabIcon}>⚙️</Text>
+                <Text style={styles.tabLabel}>Settings</Text>
               </Pressable>
             </View>
           )}
@@ -893,6 +940,21 @@ export default function App() {
           <MetricsInfoModal
             visible={showInfoModal}
             onClose={() => setShowInfoModal(false)}
+          />
+
+          {/* First-time Onboarding Wizard */}
+          <OnboardingWizard
+            visible={showOnboarding}
+            onComplete={(weight, weightUnit, wUnit) => {
+              if (weight) {
+                setWeightInput(weight);
+                saveSettingSync('userWeight', weight);
+              }
+              if (weightUnit) handleWeightUnitChange(weightUnit);
+              if (wUnit) handleWeatherUnitChange(wUnit);
+              saveSettingSync('onboardingDone', 'true');
+              setShowOnboarding(false);
+            }}
           />
 
           {/* Premium Paywall Subscription Modal */}
@@ -1189,6 +1251,7 @@ function SetupCard(props: {
   onDisableBleChange: (v: boolean) => void;
   prewarmLocation: GeoPoint | null;
   weatherSuggest: { temp: number; condition: string; code: number } | null;
+  weatherUnit: 'celsius' | 'fahrenheit';
   voiceCuesEnabled: boolean;
   onVoiceCuesChange: (v: boolean) => void;
   isPremium: boolean;
@@ -1235,7 +1298,7 @@ function SetupCard(props: {
         <View style={styles.weatherBanner}>
           <Text style={styles.weatherText}>
             ☁️ {props.weatherSuggest.condition}, {(() => {
-              const isF = props.weightUnit === 'lbs';
+              const isF = props.weatherUnit === 'fahrenheit';
               const tempVal = isF
                 ? Math.round((props.weatherSuggest.temp * 9) / 5 + 32)
                 : props.weatherSuggest.temp;
@@ -1856,6 +1919,303 @@ function OutdoorDebugPanel({ state, logs }: { state: OutdoorDetectorState; logs:
   );
 }
 
+function SettingsScreen(props: {
+  weightInput: string;
+  onWeightInputChange: (v: string) => void;
+  onWeightInputBlur: () => void;
+  weightUnit: 'lbs' | 'kg';
+  onWeightUnitChange: (v: 'lbs' | 'kg') => void;
+  weatherUnit: 'celsius' | 'fahrenheit';
+  onWeatherUnitChange: (v: 'celsius' | 'fahrenheit') => void;
+  voiceCuesEnabled: boolean;
+  onVoiceCuesChange: (v: boolean) => void;
+  disableBle: boolean;
+  onDisableBleChange: (v: boolean) => void;
+  isPremium: boolean;
+  subTier: string;
+  onShowPaywall: () => void;
+  onVersionTap: () => void;
+  settingsTapCount: number;
+  showSettingsDebug: boolean;
+  debugSubTier: 'free' | 'monthly' | 'annual';
+  onDebugSubTierChange: (tier: 'free' | 'monthly' | 'annual') => void;
+  mode: string;
+  detectorState: any;
+  outdoorState: OutdoorDetectorState | null;
+  debugLogs: string[];
+  onShowInfoModal: () => void;
+}) {
+  const appVersion = '1.0.0';
+  const subLabel = props.subTier === 'annual' ? '👑 Annual Premium'
+    : props.subTier === 'monthly' ? '⭐ Monthly Premium'
+    : '🆓 Free Tier';
+
+  return (
+    <ScrollView contentContainerStyle={styles.scroll}>
+      <Text style={styles.title}>Settings</Text>
+
+      {/* BODY PROFILE */}
+      <View style={styles.card}>
+        <Text style={styles.settingsSectionTitle}>👤 Body Profile</Text>
+        <Text style={styles.settingsDescription}>Used to estimate accurate calorie burn during workouts.</Text>
+        <View style={styles.weightRow}>
+          <View style={styles.weightInputBox}>
+            <Text style={styles.inputLabel}>Weight</Text>
+            <TextInput
+              value={props.weightInput}
+              onChangeText={props.onWeightInputChange}
+              onBlur={props.onWeightInputBlur}
+              keyboardType="decimal-pad"
+              style={styles.weightTextInput}
+              placeholder="150"
+              placeholderTextColor="#6b7280"
+              maxLength={4}
+            />
+          </View>
+          <View style={styles.weightUnitBox}>
+            <Text style={styles.inputLabel}>Unit</Text>
+            <View style={styles.unitToggleRow}>
+              <Pressable
+                onPress={() => props.onWeightUnitChange('lbs')}
+                style={[styles.unitToggleBtn, props.weightUnit === 'lbs' && styles.unitToggleBtnActive]}
+              >
+                <Text style={[styles.unitToggleText, props.weightUnit === 'lbs' && styles.unitToggleTextActive]}>Lbs</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => props.onWeightUnitChange('kg')}
+                style={[styles.unitToggleBtn, props.weightUnit === 'kg' && styles.unitToggleBtnActive]}
+              >
+                <Text style={[styles.unitToggleText, props.weightUnit === 'kg' && styles.unitToggleTextActive]}>Kg</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+        <Pressable onPress={props.onShowInfoModal} style={styles.infoLinkBtn}>
+          <Text style={styles.infoLinkText}>ℹ️ How is calorie burn calculated?</Text>
+        </Pressable>
+      </View>
+
+      {/* WEATHER UNIT */}
+      <View style={styles.card}>
+        <Text style={styles.settingsSectionTitle}>🌡️ Weather Unit</Text>
+        <Text style={styles.settingsDescription}>Choose how temperature is displayed in the workout weather banner.</Text>
+        <View style={[styles.unitToggleRow, { marginTop: 8 }]}>
+          <Pressable
+            onPress={() => props.onWeatherUnitChange('celsius')}
+            style={[styles.unitToggleBtn, props.weatherUnit === 'celsius' && styles.unitToggleBtnActive]}
+          >
+            <Text style={[styles.unitToggleText, props.weatherUnit === 'celsius' && styles.unitToggleTextActive]}>°C  Celsius</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => props.onWeatherUnitChange('fahrenheit')}
+            style={[styles.unitToggleBtn, props.weatherUnit === 'fahrenheit' && styles.unitToggleBtnActive]}
+          >
+            <Text style={[styles.unitToggleText, props.weatherUnit === 'fahrenheit' && styles.unitToggleTextActive]}>°F  Fahrenheit</Text>
+          </Pressable>
+        </View>
+      </View>
+
+      {/* TRACKING OPTIONS */}
+      <View style={styles.card}>
+        <Text style={styles.settingsSectionTitle}>🎙️ Tracking Options</Text>
+        <View style={styles.toggleRow}>
+          <Text style={styles.toggleLabel}>Announce Lap Cues (Voice Splits)</Text>
+          <Pressable
+            onPress={() => props.onVoiceCuesChange(!props.voiceCuesEnabled)}
+            style={[styles.customCheckbox, props.voiceCuesEnabled && styles.customCheckboxSelected]}
+          >
+            {props.voiceCuesEnabled && <Text style={styles.customCheckboxCheck}>✓</Text>}
+          </Pressable>
+        </View>
+        <View style={styles.toggleRow}>
+          <Text style={styles.toggleLabel}>Use BLE Beacons (Indoor)</Text>
+          <Switch
+            value={!props.disableBle}
+            onValueChange={(val) => props.onDisableBleChange(!val)}
+            trackColor={{ true: '#10b981', false: '#374151' }}
+          />
+        </View>
+      </View>
+
+      {/* SUBSCRIPTION */}
+      <View style={styles.card}>
+        <Text style={styles.settingsSectionTitle}>💳 Subscription</Text>
+        <View style={styles.settingsSubRow}>
+          <Text style={styles.settingsSubLabel}>Current Plan</Text>
+          <Text style={styles.settingsSubValue}>{subLabel}</Text>
+        </View>
+        {!props.isPremium && (
+          <Pressable onPress={props.onShowPaywall} style={styles.settingsUpgradeBtn}>
+            <Text style={styles.settingsUpgradeBtnText}>👑 Upgrade to Premium</Text>
+          </Pressable>
+        )}
+        {props.isPremium && (
+          <Pressable onPress={props.onShowPaywall} style={[styles.settingsUpgradeBtn, { backgroundColor: 'rgba(16, 185, 129, 0.1)', borderColor: 'rgba(16, 185, 129, 0.3)' }]}>
+            <Text style={[styles.settingsUpgradeBtnText, { color: '#10b981' }]}>Manage Subscription</Text>
+          </Pressable>
+        )}
+      </View>
+
+      {/* ABOUT / VERSION */}
+      <View style={styles.card}>
+        <Text style={styles.settingsSectionTitle}>ℹ️ About</Text>
+        <Pressable onPress={props.onVersionTap}>
+          <View style={styles.settingsVersionRow}>
+            <Text style={styles.settingsVersionLabel}>Version</Text>
+            <Text style={styles.settingsVersionValue}>{appVersion}{props.settingsTapCount > 0 ? ` (${7 - props.settingsTapCount} more taps for debug)` : ''}</Text>
+          </View>
+        </Pressable>
+        <Text style={styles.settingsDescription}>Lap Counter Pro — built for athletes who take their training seriously.</Text>
+      </View>
+
+      {/* DEBUG PANEL (hidden until 7-tap unlocked) */}
+      {props.showSettingsDebug && (
+        <View style={styles.card}>
+          <Text style={[styles.settingsSectionTitle, { color: '#f59e0b' }]}>🔧 Developer Debug Mode</Text>
+          <Text style={styles.settingsDescription}>Simulate different subscription tiers for testing paywall behaviour.</Text>
+          <View style={styles.debugSubRow}>
+            {(['free', 'monthly', 'annual'] as const).map((tier) => (
+              <Pressable
+                key={tier}
+                onPress={() => props.onDebugSubTierChange(tier)}
+                style={[styles.debugSubBtn, props.debugSubTier === tier && styles.debugSubBtnActive]}
+              >
+                <Text style={styles.debugSubBtnText}>{tier.charAt(0).toUpperCase() + tier.slice(1)}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <Text style={[styles.settingsDescription, { marginTop: 8 }]}>Active sensor logs:</Text>
+          {props.outdoorState ? (
+            <OutdoorDebugPanel state={props.outdoorState} logs={props.debugLogs} />
+          ) : (
+            <IndoorDebugPanel state={props.detectorState} logs={props.debugLogs} />
+          )}
+        </View>
+      )}
+    </ScrollView>
+  );
+}
+
+function OnboardingWizard(props: {
+  visible: boolean;
+  onComplete: (weight: string | null, weightUnit: 'lbs' | 'kg' | null, weatherUnit: 'celsius' | 'fahrenheit' | null) => void;
+}) {
+  const [step, setStep] = useState(0);
+  const [weight, setWeight] = useState('');
+  const [wUnit, setWUnit] = useState<'lbs' | 'kg'>('lbs');
+  const [weatherUnit, setWeatherUnit] = useState<'celsius' | 'fahrenheit'>('fahrenheit');
+
+  const handleComplete = () => {
+    props.onComplete(weight || null, wUnit, weatherUnit);
+  };
+
+  return (
+    <Modal
+      animationType="slide"
+      transparent={true}
+      visible={props.visible}
+      onRequestClose={() => {}}
+    >
+      <View style={styles.onboardingOverlay}>
+        <View style={styles.onboardingCard}>
+          {/* Step dots */}
+          <View style={styles.onboardingDots}>
+            {[0, 1, 2].map(i => (
+              <View key={i} style={[styles.onboardingDot, step === i && styles.onboardingDotActive]} />
+            ))}
+          </View>
+
+          {step === 0 && (
+            <View style={styles.onboardingStep}>
+              <Text style={styles.onboardingEmoji}>🏃‍♂️</Text>
+              <Text style={styles.onboardingTitle}>Welcome to Lap Counter!</Text>
+              <Text style={styles.onboardingDesc}>
+                Track indoor and outdoor laps with precision.
+
+Let’s set up your profile in 2 quick steps.
+              </Text>
+              <Pressable onPress={() => setStep(1)} style={styles.onboardingBtn}>
+                <Text style={styles.onboardingBtnText}>Get Started →</Text>
+              </Pressable>
+            </View>
+          )}
+
+          {step === 1 && (
+            <View style={styles.onboardingStep}>
+              <Text style={styles.onboardingEmoji}>💪</Text>
+              <Text style={styles.onboardingTitle}>Body Profile</Text>
+              <Text style={styles.onboardingDesc}>We use your weight to estimate calories burned during each workout.</Text>
+              <View style={styles.weightRow}>
+                <View style={styles.weightInputBox}>
+                  <Text style={styles.inputLabel}>Weight</Text>
+                  <TextInput
+                    value={weight}
+                    onChangeText={setWeight}
+                    keyboardType="decimal-pad"
+                    style={styles.weightTextInput}
+                    placeholder="150"
+                    placeholderTextColor="#6b7280"
+                    maxLength={4}
+                  />
+                </View>
+                <View style={styles.weightUnitBox}>
+                  <Text style={styles.inputLabel}>Unit</Text>
+                  <View style={styles.unitToggleRow}>
+                    <Pressable
+                      onPress={() => setWUnit('lbs')}
+                      style={[styles.unitToggleBtn, wUnit === 'lbs' && styles.unitToggleBtnActive]}
+                    >
+                      <Text style={[styles.unitToggleText, wUnit === 'lbs' && styles.unitToggleTextActive]}>Lbs</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => setWUnit('kg')}
+                      style={[styles.unitToggleBtn, wUnit === 'kg' && styles.unitToggleBtnActive]}
+                    >
+                      <Text style={[styles.unitToggleText, wUnit === 'kg' && styles.unitToggleTextActive]}>Kg</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              </View>
+              <Pressable onPress={() => setStep(2)} style={styles.onboardingBtn}>
+                <Text style={styles.onboardingBtnText}>Continue →</Text>
+              </Pressable>
+              <Pressable onPress={() => setStep(2)} style={styles.onboardingSkipBtn}>
+                <Text style={styles.onboardingSkipText}>Skip for now</Text>
+              </Pressable>
+            </View>
+          )}
+
+          {step === 2 && (
+            <View style={styles.onboardingStep}>
+              <Text style={styles.onboardingEmoji}>🌡️</Text>
+              <Text style={styles.onboardingTitle}>Weather Preferences</Text>
+              <Text style={styles.onboardingDesc}>How would you like to see outdoor temperature in the weather banner?</Text>
+              <View style={[styles.unitToggleRow, { marginTop: 16, marginBottom: 24 }]}>
+                <Pressable
+                  onPress={() => setWeatherUnit('celsius')}
+                  style={[styles.unitToggleBtn, { paddingVertical: 14 }, weatherUnit === 'celsius' && styles.unitToggleBtnActive]}
+                >
+                  <Text style={[styles.unitToggleText, weatherUnit === 'celsius' && styles.unitToggleTextActive]}>°C  Celsius</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => setWeatherUnit('fahrenheit')}
+                  style={[styles.unitToggleBtn, { paddingVertical: 14 }, weatherUnit === 'fahrenheit' && styles.unitToggleBtnActive]}
+                >
+                  <Text style={[styles.unitToggleText, weatherUnit === 'fahrenheit' && styles.unitToggleTextActive]}>°F  Fahrenheit</Text>
+                </Pressable>
+              </View>
+              <Pressable onPress={handleComplete} style={styles.onboardingBtn}>
+                <Text style={styles.onboardingBtnText}>✨ Start Using App</Text>
+              </Pressable>
+            </View>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+
 function DebugRow({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.debugRow}>
@@ -2402,6 +2762,142 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#1f2937',
     paddingBottom: 8,
+  },
+  // Settings screen styles
+  settingsSectionTitle: {
+    color: '#38bdf8',
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  settingsDescription: {
+    color: '#6b7280',
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: 8,
+  },
+  settingsSubRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginVertical: 8,
+  },
+  settingsSubLabel: {
+    color: '#94a3b8',
+    fontSize: 14,
+  },
+  settingsSubValue: {
+    color: '#fbbf24',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  settingsUpgradeBtn: {
+    backgroundColor: 'rgba(139, 92, 246, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(139, 92, 246, 0.3)',
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  settingsUpgradeBtnText: {
+    color: '#c084fc',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  settingsVersionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1f2937',
+    marginBottom: 8,
+  },
+  settingsVersionLabel: {
+    color: '#94a3b8',
+    fontSize: 14,
+  },
+  settingsVersionValue: {
+    color: '#e2e8f0',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  // Onboarding wizard styles
+  onboardingOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  onboardingCard: {
+    backgroundColor: '#111827',
+    borderRadius: 24,
+    padding: 28,
+    width: '100%',
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    alignItems: 'center',
+  },
+  onboardingDots: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 28,
+  },
+  onboardingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#374151',
+  },
+  onboardingDotActive: {
+    backgroundColor: '#10b981',
+    width: 24,
+  },
+  onboardingStep: {
+    width: '100%',
+    alignItems: 'center',
+  },
+  onboardingEmoji: {
+    fontSize: 56,
+    marginBottom: 16,
+  },
+  onboardingTitle: {
+    color: '#f8fafc',
+    fontSize: 24,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  onboardingDesc: {
+    color: '#94a3b8',
+    fontSize: 15,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 24,
+  },
+  onboardingBtn: {
+    backgroundColor: '#10b981',
+    borderRadius: 14,
+    paddingVertical: 16,
+    paddingHorizontal: 40,
+    alignItems: 'center',
+    width: '100%',
+    marginBottom: 10,
+  },
+  onboardingBtnText: {
+    color: '#022c22',
+    fontSize: 17,
+    fontWeight: '800',
+  },
+  onboardingSkipBtn: {
+    paddingVertical: 8,
+  },
+  onboardingSkipText: {
+    color: '#4b5563',
+    fontSize: 13,
+    textDecorationLine: 'underline',
   },
   tabBarItem: {
     flex: 1,

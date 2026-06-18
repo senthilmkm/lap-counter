@@ -15,6 +15,8 @@ export interface ExporterLap {
   steps: number;
   cadence: number;
   yawDrift?: number; // drift in meters/radians relative to starting point
+  /** For outdoor GPS laps: estimated distance in meters (total GPS / laps). */
+  distanceMeters?: number;
 }
 
 /**
@@ -56,15 +58,28 @@ export function generateGPX(gpsPath: ExporterPoint[], startTimeMs: number): stri
  * Translates workout lap summaries into a CSV spreadsheet.
  */
 export function generateCSV(laps: ExporterLap[]): string {
+  const isOutdoor = laps.some(l => l.distanceMeters !== undefined);
+
+  if (isOutdoor) {
+    let csv = 'Lap Number,Duration (s),Distance (m),Estimated Pace (min/km)\n';
+    laps.forEach((lap) => {
+      const distM = lap.distanceMeters ?? 0;
+      const paceMinKm = distM > 0 && lap.durationSeconds > 0
+        ? ((lap.durationSeconds / 60) / (distM / 1000)).toFixed(2)
+        : '—';
+      csv += `${lap.lapNumber},${lap.durationSeconds},${distM.toFixed(1)},${paceMinKm}\n`;
+    });
+    return csv;
+  }
+
+  // Indoor CSV with steps / cadence / drift
   let csv = 'Lap Number,Duration (s),Steps,Average Cadence (spm),Relative Drift (m)\n';
-  
   laps.forEach((lap) => {
-    const driftText = lap.yawDrift !== undefined && !isNaN(lap.yawDrift) 
-      ? lap.yawDrift.toFixed(2) 
+    const driftText = lap.yawDrift !== undefined && !isNaN(lap.yawDrift)
+      ? lap.yawDrift.toFixed(2)
       : '—';
     csv += `${lap.lapNumber},${lap.durationSeconds},${lap.steps},${Math.round(lap.cadence)},${driftText}\n`;
   });
-
   return csv;
 }
 
