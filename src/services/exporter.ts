@@ -26,16 +26,16 @@ export interface ExporterLap {
 export function generateGPX(gpsPath: ExporterPoint[], startTimeMs: number): string {
   const isoTime = new Date(startTimeMs).toISOString();
   let gpx = `<?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.1" creator="Lap Counter App" 
+<gpx version="1.1" creator="Orbit App" 
      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
      xmlns="http://www.topografix.com/GPX/1/1" 
      xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">
   <metadata>
-    <name>Lap Counter Session</name>
+    <name>Orbit Session</name>
     <time>${isoTime}</time>
   </metadata>
   <trk>
-    <name>Lap Counter Outdoor Activity</name>
+    <name>Orbit Outdoor Activity</name>
     <type>9</type> <!-- Run/Walk activity type code -->
     <trkseg>
 `;

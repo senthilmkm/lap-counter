@@ -175,7 +175,6 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'workout' | 'history' | 'analytics' | 'settings'>('workout');
   const [showPaywall, setShowPaywall] = useState(false);
   const [targetInput, setTargetInput] = useState(() => getSettingSync('targetLaps', String(defaultConfig.targetLaps)));
-  const [showDebug, setShowDebug] = useState(false);
   const [disableBle, setDisableBle] = useState(() => getSettingSync('disableBle', 'true') === 'true');
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
   
@@ -395,13 +394,13 @@ export default function App() {
       }
 
       const eq = getCalorieEquivalent(cals);
-      const text = `⚡ Just completed my workout using Lap Counter! 🏃‍♂️\n` +
+      const text = `⚡ Just completed my workout using Orbit! 🏃\n` +
         `• Mode: ${workout.mode === 'indoor' ? 'Indoor' : 'Outdoor'}\n` +
         `• Laps: ${workout.totalLaps} Laps\n` +
         `• Duration: ${formatDuration(duration)}` +
         `${distStr}${stepsStr}\n` +
         `• Est. Calories: ${cals} kcal (${eq} equivalent!)\n\n` +
-        `Tracked with Lap Counter Pro 🚀`;
+        `Tracked with Orbit Pro 🚀`;
 
       await Share.share({ message: text });
     } catch (e) {
@@ -622,7 +621,7 @@ export default function App() {
               contentContainerStyle={styles.scroll}
               keyboardShouldPersistTaps="handled"
             >
-              <Text style={styles.title}>Lap Counter</Text>
+              <Text style={styles.title}>Orbit</Text>
 
               {pricingConfig.announcements.global.show && (
                 <View style={styles.announcementBanner}>
@@ -722,7 +721,7 @@ export default function App() {
                 </View>
               )}
 
-              {showDebug &&
+              {showSettingsDebug &&
                 (mode === 'indoor' ? (
                   <IndoorDebugPanel state={state as DetectorState} logs={debugLogs} />
                 ) : (
@@ -1945,7 +1944,7 @@ function SettingsScreen(props: {
             <Text style={styles.settingsVersionValue}>{appVersion}</Text>
           </View>
         </Pressable>
-        <Text style={styles.settingsDescription}>Lap Counter Pro — built for athletes who take their training seriously.</Text>
+        <Text style={styles.settingsDescription}>Orbit Pro - built for athletes who take their training seriously.</Text>
       </View>
 
       {/* DEBUG PANEL (hidden until 7-tap unlocked) */}
@@ -2008,7 +2007,7 @@ function OnboardingWizard(props: {
           {step === 0 && (
             <View style={styles.onboardingStep}>
               <Text style={styles.onboardingEmoji}>🏃‍♂️</Text>
-              <Text style={styles.onboardingTitle}>Welcome to Lap Counter!</Text>
+              <Text style={styles.onboardingTitle}>Welcome to Orbit!</Text>
               <Text style={styles.onboardingDesc}>
                 Track indoor and outdoor laps with precision.
 

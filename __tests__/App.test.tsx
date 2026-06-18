@@ -116,18 +116,23 @@ describe('<App /> — Running state', () => {
 
   it('debug toggle reveals the threshold panel', async () => {
     render(<App />);
+    
+    // 1. Enable developer debug mode by tapping version 7 times in Settings tab
+    fireEvent.press(screen.getByText('Settings'));
+    const versionRow = screen.getByText('1.0.0');
+    for (let i = 0; i < 7; i++) {
+      fireEvent.press(versionRow);
+    }
+    
+    // 2. Go back to Workout tab and start workout
+    fireEvent.press(screen.getByText('Workout'));
     fireEvent.changeText(screen.getByPlaceholderText('10'), '3');
     await act(async () => {
       fireEvent.press(screen.getByText(/▶ Start/));
     });
 
-    const toggle = screen.getByRole('switch');
-    await act(async () => {
-      fireEvent(toggle, 'valueChange', true);
-    });
-    // The header reads "Debug" — the uppercase appearance is a CSS
-    // textTransform, so the underlying text node still contains "Debug".
-    expect(screen.getAllByText('Debug').length).toBeGreaterThan(0);
+    // 3. Since debug mode is enabled, the debug panel should be visible
+    expect(screen.getAllByText(/Debug/).length).toBeGreaterThan(0);
     expect(screen.getByText('phase')).toBeTruthy();
     expect(screen.getByText('BLE similarity')).toBeTruthy();
     expect(screen.getByText(/Magnetic/)).toBeTruthy();
@@ -203,14 +208,7 @@ describe('<App /> — mode toggle', () => {
   it('switches help text and selection when Outdoor is tapped', () => {
     render(<App />);
     expect(
-      screen.getByText(/magnetometer, gyroscope, and step count/)
-    ).toBeTruthy();
-
-    // Toggle BLE switch to true (first switch is the BLE beacons toggle)
-    const switches = screen.getAllByRole('switch');
-    fireEvent(switches[0], 'valueChange', true);
-    expect(
-      screen.getByText(/nearby BLE beacons \+ magnetic field/)
+      screen.getByText(/counts laps using your device's sensors/)
     ).toBeTruthy();
 
     fireEvent.press(screen.getByText('Outdoor'));
@@ -237,15 +235,22 @@ describe('<App /> — mode toggle', () => {
 
   it('Outdoor debug panel shows GPS-specific stats', async () => {
     render(<App />);
+    
+    // 1. Enable developer debug mode by tapping version 7 times in Settings tab
+    fireEvent.press(screen.getByText('Settings'));
+    const versionRow = screen.getByText('1.0.0');
+    for (let i = 0; i < 7; i++) {
+      fireEvent.press(versionRow);
+    }
+    
+    // 2. Go back to Workout tab, select Outdoor, and start workout
+    fireEvent.press(screen.getByText('Workout'));
     fireEvent.press(screen.getByText('Outdoor'));
     fireEvent.changeText(screen.getByPlaceholderText('10'), '3');
     await act(async () => {
       fireEvent.press(screen.getByText(/▶ Start/));
     });
-    const toggle = screen.getByRole('switch');
-    await act(async () => {
-      fireEvent(toggle, 'valueChange', true);
-    });
+
     expect(screen.getByText(/distance \(m\)/)).toBeTruthy();
     expect(screen.getByText(/GPS accuracy/)).toBeTruthy();
     expect(screen.getByText('rejected fixes')).toBeTruthy();

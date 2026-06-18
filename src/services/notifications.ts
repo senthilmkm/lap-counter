@@ -33,7 +33,7 @@ async function ensureAndroidChannel(): Promise<void> {
   androidChannelEnsured = true;
   try {
     await Notifications.setNotificationChannelAsync(ANDROID_CHANNEL_ID, {
-      name: 'Lap Counter',
+      name: 'Orbit',
       importance: Notifications.AndroidImportance.HIGH,
       vibrationPattern: [0, 250, 250, 250],
       lightColor: '#10b981',
@@ -86,7 +86,7 @@ export async function notifyTargetReached(
     if (!granted) return null;
     return await Notifications.scheduleNotificationAsync({
       content: {
-        title: 'Lap Counter',
+        title: 'Orbit',
         body: `You completed all ${count} of ${target} laps. Nice work.`,
         data: { type: 'target-reached', count, target },
         sound: 'default',
