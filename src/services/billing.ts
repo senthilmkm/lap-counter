@@ -2,7 +2,7 @@ import { Platform } from 'react-native';
 import Purchases, { LOG_LEVEL, PurchasesPackage } from 'react-native-purchases';
 
 // RevenueCat public API keys (standard placeholder credentials)
-const REVENUECAT_API_KEY_IOS = 'goog_placeholder_ios_api_key';
+const REVENUECAT_API_KEY_IOS = 'appl_hhONivyagToIIjpLwFhvoOcGnfB';
 const REVENUECAT_API_KEY_ANDROID = 'goog_placeholder_android_api_key';
 
 const ENTITLEMENT_PREMIUM = 'premium';
