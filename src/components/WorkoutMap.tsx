@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { StyleSheet, View, Pressable, Text, ActivityIndicator } from 'react-native';
+import { StyleSheet, View, Pressable, Text, ActivityIndicator, Alert } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_DEFAULT } from 'react-native-maps';
 
 export interface MapPoint {
@@ -35,9 +35,9 @@ export default function WorkoutMap({
   const [pois, setPois] = useState<POIItem[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // Auto-center map camera when current location changes
+  // Auto-center map camera when current location changes (only if no POI search is active)
   useEffect(() => {
-    if (currentLocation && mapRef.current) {
+    if (currentLocation && mapRef.current && poiType === 'none') {
       mapRef.current.animateToRegion(
         {
           latitude: currentLocation.latitude,
@@ -48,7 +48,7 @@ export default function WorkoutMap({
         1000 // duration of camera shift animation (ms)
       );
     }
-  }, [currentLocation]);
+  }, [currentLocation, poiType]);
 
   const fetchNearbyPOIs = async (type: 'cafe' | 'restaurant' | 'shop') => {
     if (loading) return;
@@ -79,7 +79,7 @@ export default function WorkoutMap({
       const res = await fetch(url);
       const data = await res.json();
 
-      if (data && data.elements) {
+      if (data && data.elements && data.elements.length > 0) {
         const items = data.elements
           .filter((el: any) => el.lat && el.lon)
           .map((el: any) => ({
@@ -90,12 +90,35 @@ export default function WorkoutMap({
             type,
           }));
         setPois(items);
+
+        // Zoom out map dynamically to fit starting location, user location, and all POI pins
+        if (items.length > 0 && mapRef.current) {
+          const coordinatesToFit = [
+            ...(loc ? [loc] : []),
+            ...(pointA ? [pointA] : []),
+            ...items.map((item: any) => ({
+              latitude: item.latitude,
+              longitude: item.longitude,
+            })),
+          ];
+
+          setTimeout(() => {
+            if (mapRef.current) {
+              mapRef.current.fitToCoordinates(coordinatesToFit, {
+                edgePadding: { top: 60, right: 60, bottom: 80, left: 60 },
+                animated: true,
+              });
+            }
+          }, 300);
+        }
       } else {
         setPois([]);
+        Alert.alert('No Results', `No nearby ${type === 'cafe' ? 'coffee shops' : type === 'restaurant' ? 'restaurants' : 'stores'} found within 800m.`);
       }
     } catch (e) {
       console.warn('Failed to fetch nearby POIs:', e);
       setPois([]);
+      Alert.alert('Search Error', 'Unable to retrieve nearby locations. Please try again.');
     } finally {
       setLoading(false);
     }
