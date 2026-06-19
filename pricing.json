@@ -9,7 +9,7 @@
   },
   "announcements": {
     "global": {
-      "message": "Welcome to Orbit 2.0! Enjoy dynamic MET-based calorie burn tracking, POI map searches, and personal best records.",
+      "message": "Welcome to Orbit 1.0! Tap Start, pocket your device, and let our hands-free sensor fusion track every lap indoors and outdoors",
       "show": true
     },
     "freeTier": {
