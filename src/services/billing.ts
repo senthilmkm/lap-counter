@@ -5,7 +5,7 @@ import Purchases, { LOG_LEVEL, PurchasesPackage } from 'react-native-purchases';
 const REVENUECAT_API_KEY_IOS = 'appl_hhONivyagToIIjpLwFhvoOcGnfB';
 const REVENUECAT_API_KEY_ANDROID = 'goog_placeholder_android_api_key';
 
-const ENTITLEMENT_PREMIUM = 'premium';
+const ENTITLEMENT_PREMIUM = 'pro';
 
 let isInitialized = false;
 
