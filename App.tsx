@@ -16,6 +16,7 @@ import {
   TextInput,
   View,
   Share,
+  Linking,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
@@ -1025,6 +1026,17 @@ export default function App() {
                   </Pressable>
                   <Pressable onPress={() => setShowPaywall(false)} style={styles.modalCloseBtn}>
                     <Text style={styles.modalCloseBtnText}>Close</Text>
+                  </Pressable>
+                </View>
+
+                {/* Footer links for Privacy Policy and Terms of Use */}
+                <View style={styles.modalFooterLinks}>
+                  <Pressable onPress={() => Linking.openURL('https://senthilmkm.github.io/lap-counter/privacy.html')}>
+                    <Text style={styles.modalFooterLinkText}>Privacy Policy</Text>
+                  </Pressable>
+                  <Text style={styles.modalFooterLinkDivider}>•</Text>
+                  <Pressable onPress={() => Linking.openURL('https://www.apple.com/legal/internet-services/itunes/dev/stdeula/')}>
+                    <Text style={styles.modalFooterLinkText}>Terms of Use</Text>
                   </Pressable>
                 </View>
               </View>
@@ -3091,6 +3103,24 @@ const styles = StyleSheet.create({
     color: '#ef4444',
     fontSize: 14,
     fontWeight: '600',
+  },
+  modalFooterLinks: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 20,
+    gap: 8,
+    marginBottom: 8,
+  },
+  modalFooterLinkText: {
+    color: '#3b82f6',
+    fontSize: 12,
+    fontWeight: '500',
+    textDecorationLine: 'underline',
+  },
+  modalFooterLinkDivider: {
+    color: '#4b5563',
+    fontSize: 12,
   },
   // Workout Details Modal styles
   modalActionExportRow: {
