@@ -1,7 +1,7 @@
 {
   "features": {
     "paywallEnabled": true,
-    "maxFreeLaps": 3,
+    "maxFreeLaps": 5,
     "gpsModePremiumGated": false,
     "analyticsPremiumGated": true,
     "backgroundTaskPremiumGated": true,

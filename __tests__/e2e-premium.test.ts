@@ -24,7 +24,7 @@ describe('E2E Premium and Subscription Features', () => {
     expect(result.current.state.phase).toBe('idle');
   });
 
-  it('allows outdoor GPS mode for Free tier users (3-lap trial) when gpsModePremiumGated is disabled', async () => {
+  it('allows outdoor GPS mode for Free tier users (5-lap trial) when gpsModePremiumGated is disabled', async () => {
     const { result } = renderHook(() => useLapCounter());
 
     // Start Outdoor workout with isPremium = false and gpsModePremiumGated = false
@@ -34,7 +34,7 @@ describe('E2E Premium and Subscription Features', () => {
 
     expect(result.current.error).toBeNull();
     expect(result.current.state.phase).not.toBe('idle');
-    expect(result.current.state.config.targetLaps).toBe(3); // should be clamped from default 10 to 3
+    expect(result.current.state.config.targetLaps).toBe(5); // should be clamped from default 10 to 5
 
     // Teardown
     await act(async () => {
@@ -60,15 +60,15 @@ describe('E2E Premium and Subscription Features', () => {
     });
   });
 
-  it('clamps target laps to 3 for Free tier users during indoor mode', async () => {
+  it('clamps target laps to 5 for Free tier users during indoor mode', async () => {
     const { result } = renderHook(() => useLapCounter());
 
-    // Start indoor workout with 5 laps, isPremium = false
+    // Start indoor workout with 10 laps, isPremium = false
     await act(async () => {
-      await result.current.start({ mode: 'indoor', targetLaps: 5, isPremium: false });
+      await result.current.start({ mode: 'indoor', targetLaps: 10, isPremium: false });
     });
 
-    expect(result.current.state.config.targetLaps).toBe(3);
+    expect(result.current.state.config.targetLaps).toBe(5);
 
     // Teardown
     await act(async () => {
@@ -76,15 +76,15 @@ describe('E2E Premium and Subscription Features', () => {
     });
   });
 
-  it('allows unlimited target laps (e.g., 5) for Premium users during indoor mode', async () => {
+  it('allows unlimited target laps (e.g., 10) for Premium users during indoor mode', async () => {
     const { result } = renderHook(() => useLapCounter());
 
-    // Start indoor workout with 5 laps, isPremium = true
+    // Start indoor workout with 10 laps, isPremium = true
     await act(async () => {
-      await result.current.start({ mode: 'indoor', targetLaps: 5, isPremium: true });
+      await result.current.start({ mode: 'indoor', targetLaps: 10, isPremium: true });
     });
 
-    expect(result.current.state.config.targetLaps).toBe(5);
+    expect(result.current.state.config.targetLaps).toBe(10);
 
     // Teardown
     await act(async () => {

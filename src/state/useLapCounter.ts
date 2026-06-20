@@ -347,7 +347,7 @@ export function useLapCounter() {
       // Gating check: clamp target laps to max 3 on Free tier
       let targetLaps = config?.targetLaps ?? (requestedMode === 'indoor' ? DEFAULT_CONFIG.targetLaps : DEFAULT_OUTDOOR_CONFIG.targetLaps);
       if (!isPremium) {
-        targetLaps = Math.min(targetLaps, 3);
+        targetLaps = Math.min(targetLaps, 5);
       }
 
       const modifiedConfig = {

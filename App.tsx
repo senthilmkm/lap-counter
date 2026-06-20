@@ -983,7 +983,7 @@ export default function App() {
                 )}
 
                 <View style={styles.benefitsList}>
-                  <Text style={styles.benefitItem}>⭐ **Unlimited Laps**: Remove the 3-lap limit on indoor workouts.</Text>
+                  <Text style={styles.benefitItem}>⭐ **Unlimited Laps**: Remove the 5-lap limit on indoor workouts.</Text>
                   <Text style={styles.benefitItem}>⭐ **Outdoor GPS Mode**: Unlock live tracking map and Continuous Pre-Warming locks.</Text>
                   <Text style={styles.benefitItem}>🔜 **Live Beacon Telecast** (Coming Soon): Generate a shareable map link to broadcast your GPS run live to spectators.</Text>
                   <Text style={styles.benefitItem}>⭐ **Advanced Analytics**: Cadence, stride estimation, and relative drift graphs.</Text>
