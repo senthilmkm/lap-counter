@@ -179,7 +179,7 @@ export default function App() {
   const [targetInput, setTargetInput] = useState(() => {
     const saved = getSettingSync('targetLaps', '');
     if (saved) return saved;
-    return isPremium ? String(defaultConfig.targetLaps) : '3';
+    return isPremium ? String(defaultConfig.targetLaps) : '5';
   });
   const [disableBle, setDisableBle] = useState(() => getSettingSync('disableBle', 'true') === 'true');
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
