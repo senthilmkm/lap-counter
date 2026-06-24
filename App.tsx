@@ -124,10 +124,10 @@ export default function App() {
         Alert.alert('Purchase Failed', 'Unable to complete purchase. Please try again.');
       }
     } else {
-      sub.setSubTier(type);
-      sub.setIsPremium(true);
-      setShowPaywall(false);
-      Alert.alert('Welcome to Premium!', `Subscription activated successfully (${type} simulation/sandbox mode). Thank you!`);
+      Alert.alert(
+        'Store Connection Error',
+        'Subscription offerings could not be retrieved from the App Store. Please check your network connection and try again.'
+      );
     }
   };
 
