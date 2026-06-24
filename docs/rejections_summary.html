@@ -458,7 +458,7 @@
 
         <div class="section-title">Fix Details</div>
         <div class="fix-box">
-          Completely removed the <code>bluetooth-central</code> background key from the array of background modes in <code>app.json</code>, restricting background execution exclusively to GPS tracking (<code>location</code>).
+          Completely removed the <code>bluetooth-central</code> background key from the array of background modes in <code>app.json</code>, and set <code>isBackgroundEnabled</code> to <code>false</code> in the <code>react-native-ble-plx</code> config to prevent background modes from being auto-injected during native compilation. Background execution is now restricted exclusively to GPS tracking (<code>location</code>).
         </div>
 
         <div class="section-title">App Store Review Note (Copy to paste)</div>
