@@ -972,73 +972,75 @@ export default function App() {
           >
             <View style={styles.modalOverlay}>
               <View style={styles.modalContent}>
-                <Text style={styles.modalEmoji}>👑</Text>
-                <Text style={styles.modalTitle}>Unlock Premium Tier</Text>
-                <Text style={styles.modalSubtitle}>Unlock world-class fitness tracking features.</Text>
-                
-                {pricingConfig.announcements.freeTier.show && (
-                  <View style={styles.tierAnnouncementBanner}>
-                    <Text style={styles.tierAnnouncementText}>🎁 {pricingConfig.announcements.freeTier.message}</Text>
+                <ScrollView style={styles.modalScrollView} contentContainerStyle={styles.modalScrollViewContent} showsVerticalScrollIndicator={false}>
+                  <Text style={styles.modalEmoji}>👑</Text>
+                  <Text style={styles.modalTitle}>Unlock Premium Tier</Text>
+                  <Text style={styles.modalSubtitle}>Unlock world-class fitness tracking features.</Text>
+                  
+                  {pricingConfig.announcements.freeTier.show && (
+                    <View style={styles.tierAnnouncementBanner}>
+                      <Text style={styles.tierAnnouncementText}>🎁 {pricingConfig.announcements.freeTier.message}</Text>
+                    </View>
+                  )}
+
+                  <View style={styles.benefitsList}>
+                    <Text style={styles.benefitItem}>⭐ **Unlimited Laps**: Remove the 5-lap limit on indoor workouts.</Text>
+                    <Text style={styles.benefitItem}>⭐ **Outdoor GPS Mode**: Unlock live tracking map and Continuous Pre-Warming locks.</Text>
+                    <Text style={styles.benefitItem}>🔜 **Live Beacon Telecast** (Coming Soon): Generate a shareable map link to broadcast your GPS run live to spectators.</Text>
+                    <Text style={styles.benefitItem}>⭐ **Advanced Analytics**: Cadence, stride estimation, and relative drift graphs.</Text>
+                    <Text style={styles.benefitItem}>⭐ **Background Session Tracking**: Count laps while screen is turned off.</Text>
+                    <Text style={styles.benefitItem}>⭐ **Unlimited History & Exports**: Keep all sessions and export CSV/GPX files.</Text>
                   </View>
-                )}
 
-                <View style={styles.benefitsList}>
-                  <Text style={styles.benefitItem}>⭐ **Unlimited Laps**: Remove the 5-lap limit on indoor workouts.</Text>
-                  <Text style={styles.benefitItem}>⭐ **Outdoor GPS Mode**: Unlock live tracking map and Continuous Pre-Warming locks.</Text>
-                  <Text style={styles.benefitItem}>🔜 **Live Beacon Telecast** (Coming Soon): Generate a shareable map link to broadcast your GPS run live to spectators.</Text>
-                  <Text style={styles.benefitItem}>⭐ **Advanced Analytics**: Cadence, stride estimation, and relative drift graphs.</Text>
-                  <Text style={styles.benefitItem}>⭐ **Background Session Tracking**: Count laps while screen is turned off.</Text>
-                  <Text style={styles.benefitItem}>⭐ **Unlimited History & Exports**: Keep all sessions and export CSV/GPX files.</Text>
-                </View>
+                  {pricingConfig.tiers.annual.enabled && (
+                    <Pressable
+                      onPress={() => handlePurchase('annual')}
+                      style={styles.modalBuyBtn}
+                    >
+                      <Text style={styles.modalBuyBtnText}>Subscribe Annual: {pricingConfig.tiers.annual.priceLabel} {pricingConfig.tiers.annual.savePercentageLabel}</Text>
+                    </Pressable>
+                  )}
+                  
+                  {pricingConfig.tiers.monthly.enabled && (
+                    <Pressable
+                      onPress={() => handlePurchase('monthly')}
+                      style={[styles.modalBuyBtn, { backgroundColor: '#3b82f6', marginTop: 8 }]}
+                    >
+                      <Text style={styles.modalBuyBtnText}>Subscribe Monthly: {pricingConfig.tiers.monthly.priceLabel}</Text>
+                    </Pressable>
+                  )}
 
-                {pricingConfig.tiers.annual.enabled && (
-                  <Pressable
-                    onPress={() => handlePurchase('annual')}
-                    style={styles.modalBuyBtn}
-                  >
-                    <Text style={styles.modalBuyBtnText}>Subscribe Annual: {pricingConfig.tiers.annual.priceLabel} {pricingConfig.tiers.annual.savePercentageLabel}</Text>
-                  </Pressable>
-                )}
-                
-                {pricingConfig.tiers.monthly.enabled && (
-                  <Pressable
-                    onPress={() => handlePurchase('monthly')}
-                    style={[styles.modalBuyBtn, { backgroundColor: '#3b82f6', marginTop: 8 }]}
-                  >
-                    <Text style={styles.modalBuyBtnText}>Subscribe Monthly: {pricingConfig.tiers.monthly.priceLabel}</Text>
-                  </Pressable>
-                )}
+                  <View style={styles.modalRowButtons}>
+                    <Pressable
+                      onPress={async () => {
+                        const success = await sub.restore();
+                        if (success) {
+                          setShowPaywall(false);
+                          Alert.alert('Success', 'Purchases restored successfully!');
+                        } else {
+                          Alert.alert('Restore Failed', 'No active purchases found to restore.');
+                        }
+                      }}
+                      style={styles.modalRestoreBtn}
+                    >
+                      <Text style={styles.modalRestoreBtnText}>Restore Purchases</Text>
+                    </Pressable>
+                    <Pressable onPress={() => setShowPaywall(false)} style={styles.modalCloseBtn}>
+                      <Text style={styles.modalCloseBtnText}>Close</Text>
+                    </Pressable>
+                  </View>
 
-                <View style={styles.modalRowButtons}>
-                  <Pressable
-                    onPress={async () => {
-                      const success = await sub.restore();
-                      if (success) {
-                        setShowPaywall(false);
-                        Alert.alert('Success', 'Purchases restored successfully!');
-                      } else {
-                        Alert.alert('Restore Failed', 'No active purchases found to restore.');
-                      }
-                    }}
-                    style={styles.modalRestoreBtn}
-                  >
-                    <Text style={styles.modalRestoreBtnText}>Restore Purchases</Text>
-                  </Pressable>
-                  <Pressable onPress={() => setShowPaywall(false)} style={styles.modalCloseBtn}>
-                    <Text style={styles.modalCloseBtnText}>Close</Text>
-                  </Pressable>
-                </View>
-
-                {/* Footer links for Privacy Policy and Terms of Use */}
-                <View style={styles.modalFooterLinks}>
-                  <Pressable onPress={() => Linking.openURL('https://senthilmkm.github.io/lap-counter/privacy.html')}>
-                    <Text style={styles.modalFooterLinkText}>Privacy Policy</Text>
-                  </Pressable>
-                  <Text style={styles.modalFooterLinkDivider}>•</Text>
-                  <Pressable onPress={() => Linking.openURL('https://www.apple.com/legal/internet-services/itunes/dev/stdeula/')}>
-                    <Text style={styles.modalFooterLinkText}>Terms of Use</Text>
-                  </Pressable>
-                </View>
+                  {/* Footer links for Privacy Policy and Terms of Use */}
+                  <View style={styles.modalFooterLinks}>
+                    <Pressable onPress={() => Linking.openURL('https://senthilmkm.github.io/lap-counter/privacy.html')}>
+                      <Text style={styles.modalFooterLinkText}>Privacy Policy</Text>
+                    </Pressable>
+                    <Text style={styles.modalFooterLinkDivider}>•</Text>
+                    <Pressable onPress={() => Linking.openURL('https://www.apple.com/legal/internet-services/itunes/dev/stdeula/')}>
+                      <Text style={styles.modalFooterLinkText}>Terms of Use</Text>
+                    </Pressable>
+                  </View>
+                </ScrollView>
               </View>
             </View>
           </Modal>
@@ -1053,126 +1055,128 @@ export default function App() {
             >
               <View style={styles.modalOverlay}>
                 <View style={styles.modalContent}>
-                  <Text style={styles.modalTitle}>Workout Summary</Text>
-                  <Text style={styles.modalSubtitle}>{new Date(selectedWorkout.startTime).toLocaleString()}</Text>
+                  <ScrollView style={styles.modalScrollView} contentContainerStyle={styles.modalScrollViewContent} showsVerticalScrollIndicator={false}>
+                    <Text style={styles.modalTitle}>Workout Summary</Text>
+                    <Text style={styles.modalSubtitle}>{new Date(selectedWorkout.startTime).toLocaleString()}</Text>
 
-                  <View style={styles.summaryTable}>
-                    <View style={styles.summaryRow}>
-                      <Text style={styles.summaryLabel}>Mode</Text>
-                      <Text style={styles.summaryValue}>{selectedWorkout.mode === 'indoor' ? '🏠 Indoor' : '🌳 Outdoor'}</Text>
-                    </View>
-                    <View style={styles.summaryRow}>
-                      <Text style={styles.summaryLabel}>Laps Completed</Text>
-                      <Text style={styles.summaryValue}>{selectedWorkout.totalLaps}</Text>
-                    </View>
-                    <View style={styles.summaryRow}>
-                      <Text style={styles.summaryLabel}>Total Duration</Text>
-                      <Text style={styles.summaryValue}>{formatDuration(Math.round((selectedWorkout.endTime - selectedWorkout.startTime) / 1000))}</Text>
-                    </View>
-                    {selectedWorkout.mode === 'indoor' ? (
-                      <>
-                        <View style={styles.summaryRow}>
-                          <Text style={styles.summaryLabel}>Total Steps</Text>
-                          <Text style={styles.summaryValue}>{selectedWorkout.steps} steps</Text>
-                        </View>
-                        <View style={styles.summaryRow}>
-                          <Text style={styles.summaryLabel}>Est. Calories Burned</Text>
-                          <Text style={styles.summaryValue}>
-                            {(() => {
-                              const cals = estimateCalories({
-                                mode: 'indoor',
-                                steps: selectedWorkout.steps,
-                                durationSeconds: Math.round((selectedWorkout.endTime - selectedWorkout.startTime) / 1000),
-                                weightLbs: parsedWeight,
-                                strideLengthMeters: selectedWorkout.strideLength,
-                              });
-                              return `${cals} kcal (${getCalorieEquivalent(cals).split(' ')[0]})`;
-                            })()}
-                          </Text>
-                        </View>
-                      </>
-                    ) : (
-                      <>
-                        <View style={styles.summaryRow}>
-                          <Text style={styles.summaryLabel}>Est. Distance</Text>
-                          <Text style={styles.summaryValue}>
-                            {(() => {
-                              let distM = 0;
-                              for (let i = 1; i < selectedWorkoutPath.length; i++) {
-                                distM += haversineDistance(selectedWorkoutPath[i - 1], selectedWorkoutPath[i]);
-                              }
-                              return (distM / 1609.34).toFixed(2);
-                            })()} miles
-                          </Text>
-                        </View>
-                        <View style={styles.summaryRow}>
-                          <Text style={styles.summaryLabel}>Est. Calories Burned</Text>
-                          <Text style={styles.summaryValue}>
-                            {(() => {
-                              let distM = 0;
-                              for (let i = 1; i < selectedWorkoutPath.length; i++) {
-                                distM += haversineDistance(selectedWorkoutPath[i - 1], selectedWorkoutPath[i]);
-                              }
-                              const cals = estimateCalories({
-                                mode: 'outdoor',
-                                steps: 0,
-                                durationSeconds: Math.round((selectedWorkout.endTime - selectedWorkout.startTime) / 1000),
-                                weightLbs: parsedWeight,
-                                strideLengthMeters: 0,
-                                gpsDistanceMeters: distM,
-                              });
-                              return `${cals} kcal (${getCalorieEquivalent(cals).split(' ')[0]})`;
-                            })()}
-                          </Text>
-                        </View>
-                      </>
-                    )}
-                  </View>
-
-                  <View style={styles.card}>
-                    <Text style={styles.cardTitle}>Advanced Metrics</Text>
-                    <View style={styles.statsRow}>
-                      <View style={styles.statBox}>
-                        <Text style={styles.statLabel}>Cadence</Text>
-                        <Text style={styles.statValue}>{Math.round(selectedWorkout.cadence)} spm</Text>
+                    <View style={styles.summaryTable}>
+                      <View style={styles.summaryRow}>
+                        <Text style={styles.summaryLabel}>Mode</Text>
+                        <Text style={styles.summaryValue}>{selectedWorkout.mode === 'indoor' ? '🏠 Indoor' : '🌳 Outdoor'}</Text>
                       </View>
-                      <View style={styles.statBox}>
-                        <Text style={styles.statLabel}>Stride</Text>
-                        <Text style={styles.statValue}>{selectedWorkout.strideLength.toFixed(2)} m</Text>
+                      <View style={styles.summaryRow}>
+                        <Text style={styles.summaryLabel}>Laps Completed</Text>
+                        <Text style={styles.summaryValue}>{selectedWorkout.totalLaps}</Text>
                       </View>
-                      <View style={styles.statBox}>
-                        <Text style={styles.statLabel}>Displ. Drift</Text>
-                        <Text style={styles.statValue}>{selectedWorkout.yawDrift.toFixed(1)} m</Text>
+                      <View style={styles.summaryRow}>
+                        <Text style={styles.summaryLabel}>Total Duration</Text>
+                        <Text style={styles.summaryValue}>{formatDuration(Math.round((selectedWorkout.endTime - selectedWorkout.startTime) / 1000))}</Text>
                       </View>
-                    </View>
-                  </View>
-
-                  {isPremium ? (
-                    <View style={styles.modalActionExportRow}>
-                      <Pressable onPress={() => handleExportCSV(selectedWorkout)} style={styles.exportItemBtn}>
-                        <Text style={styles.exportItemBtnText}>CSV Export</Text>
-                      </Pressable>
-                      {selectedWorkout.mode === 'outdoor' && (
-                        <Pressable onPress={() => handleExportGPX(selectedWorkout)} style={[styles.exportItemBtn, { backgroundColor: '#8b5cf6' }]}>
-                          <Text style={styles.exportItemBtnText}>GPX Export</Text>
-                        </Pressable>
+                      {selectedWorkout.mode === 'indoor' ? (
+                        <>
+                          <View style={styles.summaryRow}>
+                            <Text style={styles.summaryLabel}>Total Steps</Text>
+                            <Text style={styles.summaryValue}>{selectedWorkout.steps} steps</Text>
+                          </View>
+                          <View style={styles.summaryRow}>
+                            <Text style={styles.summaryLabel}>Est. Calories Burned</Text>
+                            <Text style={styles.summaryValue}>
+                              {(() => {
+                                const cals = estimateCalories({
+                                  mode: 'indoor',
+                                  steps: selectedWorkout.steps,
+                                  durationSeconds: Math.round((selectedWorkout.endTime - selectedWorkout.startTime) / 1000),
+                                  weightLbs: parsedWeight,
+                                  strideLengthMeters: selectedWorkout.strideLength,
+                                });
+                                return `${cals} kcal (${getCalorieEquivalent(cals).split(' ')[0]})`;
+                              })()}
+                            </Text>
+                          </View>
+                        </>
+                      ) : (
+                        <>
+                          <View style={styles.summaryRow}>
+                            <Text style={styles.summaryLabel}>Est. Distance</Text>
+                            <Text style={styles.summaryValue}>
+                              {(() => {
+                                let distM = 0;
+                                for (let i = 1; i < selectedWorkoutPath.length; i++) {
+                                  distM += haversineDistance(selectedWorkoutPath[i - 1], selectedWorkoutPath[i]);
+                                }
+                                return (distM / 1609.34).toFixed(2);
+                              })()} miles
+                            </Text>
+                          </View>
+                          <View style={styles.summaryRow}>
+                            <Text style={styles.summaryLabel}>Est. Calories Burned</Text>
+                            <Text style={styles.summaryValue}>
+                              {(() => {
+                                let distM = 0;
+                                for (let i = 1; i < selectedWorkoutPath.length; i++) {
+                                  distM += haversineDistance(selectedWorkoutPath[i - 1], selectedWorkoutPath[i]);
+                                }
+                                const cals = estimateCalories({
+                                  mode: 'outdoor',
+                                  steps: 0,
+                                  durationSeconds: Math.round((selectedWorkout.endTime - selectedWorkout.startTime) / 1000),
+                                  weightLbs: parsedWeight,
+                                  strideLengthMeters: 0,
+                                  gpsDistanceMeters: distM,
+                                });
+                                return `${cals} kcal (${getCalorieEquivalent(cals).split(' ')[0]})`;
+                              })()}
+                            </Text>
+                          </View>
+                        </>
                       )}
                     </View>
-                  ) : (
-                    <Pressable
-                      onPress={() => {
-                        setSelectedWorkout(null);
-                        setShowPaywall(true);
-                      }}
-                      style={[styles.completedPaywallBtn, { marginTop: 12, width: '100%' }]}
-                    >
-                      <Text style={styles.completedPaywallText}>👑 Upgrade to Export GPX/CSV</Text>
-                    </Pressable>
-                  )}
 
-                  <Pressable onPress={() => setSelectedWorkout(null)} style={[styles.primaryButton, { width: '100%', marginTop: 16 }]}>
-                    <Text style={styles.primaryButtonText}>Close Summary</Text>
-                  </Pressable>
+                    <View style={styles.card}>
+                      <Text style={styles.cardTitle}>Advanced Metrics</Text>
+                      <View style={styles.statsRow}>
+                        <View style={styles.statBox}>
+                          <Text style={styles.statLabel}>Cadence</Text>
+                          <Text style={styles.statValue}>{Math.round(selectedWorkout.cadence)} spm</Text>
+                        </View>
+                        <View style={styles.statBox}>
+                          <Text style={styles.statLabel}>Stride</Text>
+                          <Text style={styles.statValue}>{selectedWorkout.strideLength.toFixed(2)} m</Text>
+                        </View>
+                        <View style={styles.statBox}>
+                          <Text style={styles.statLabel}>Displ. Drift</Text>
+                          <Text style={styles.statValue}>{selectedWorkout.yawDrift.toFixed(1)} m</Text>
+                        </View>
+                      </View>
+                    </View>
+
+                    {isPremium ? (
+                      <View style={styles.modalActionExportRow}>
+                        <Pressable onPress={() => handleExportCSV(selectedWorkout)} style={styles.exportItemBtn}>
+                          <Text style={styles.exportItemBtnText}>CSV Export</Text>
+                        </Pressable>
+                        {selectedWorkout.mode === 'outdoor' && (
+                          <Pressable onPress={() => handleExportGPX(selectedWorkout)} style={[styles.exportItemBtn, { backgroundColor: '#8b5cf6' }]}>
+                            <Text style={styles.exportItemBtnText}>GPX Export</Text>
+                          </Pressable>
+                        )}
+                      </View>
+                    ) : (
+                      <Pressable
+                        onPress={() => {
+                          setSelectedWorkout(null);
+                          setShowPaywall(true);
+                        }}
+                        style={[styles.completedPaywallBtn, { marginTop: 12, width: '100%' }]}
+                      >
+                        <Text style={styles.completedPaywallText}>👑 Upgrade to Export GPX/CSV</Text>
+                      </Pressable>
+                    )}
+
+                    <Pressable onPress={() => setSelectedWorkout(null)} style={[styles.primaryButton, { width: '100%', marginTop: 16 }]}>
+                      <Text style={styles.primaryButtonText}>Close Summary</Text>
+                    </Pressable>
+                  </ScrollView>
                 </View>
               </View>
             </Modal>
@@ -2167,6 +2171,8 @@ function DebugRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+const isIPad = Platform.OS === 'ios' && (Platform as any).isPad;
+
 const styles = StyleSheet.create({
   setupSection: {
     marginBottom: 16,
@@ -2797,6 +2803,7 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     padding: 28,
     width: '100%',
+    maxWidth: 480, // Prevent stretching on tablets
     borderWidth: 1,
     borderColor: '#1f2937',
     alignItems: 'center',
@@ -3064,18 +3071,22 @@ const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.75)',
-    justifyContent: 'flex-end',
+    justifyContent: isIPad ? 'center' : 'flex-end',
+    alignItems: isIPad ? 'center' : 'stretch',
   },
   modalContent: {
     backgroundColor: '#111827',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
+    borderBottomLeftRadius: isIPad ? 24 : 0,
+    borderBottomRightRadius: isIPad ? 24 : 0,
     padding: 24,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#1f2937',
-    borderBottomWidth: 0,
+    borderBottomWidth: isIPad ? 1 : 0,
     maxHeight: '90%',
+    width: isIPad ? 500 : '100%',
   },
   modalEmoji: {
     fontSize: 48,
@@ -3160,6 +3171,13 @@ const styles = StyleSheet.create({
   modalFooterLinkDivider: {
     color: '#4b5563',
     fontSize: 12,
+  },
+  modalScrollView: {
+    width: '100%',
+  },
+  modalScrollViewContent: {
+    alignItems: 'center',
+    paddingBottom: 8,
   },
   // Workout Details Modal styles
   modalActionExportRow: {
