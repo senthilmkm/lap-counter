@@ -81,10 +81,7 @@
       [
         "react-native-ble-plx",
         {
-          "isBackgroundEnabled": true,
-          "modes": [
-            "central"
-          ],
+          "isBackgroundEnabled": false,
           "bluetoothAlwaysPermission": "Used indoors to fingerprint your starting location by sensing nearby Bluetooth devices."
         }
       ],
