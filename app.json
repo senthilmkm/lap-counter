@@ -18,7 +18,6 @@
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Used outdoors to keep counting laps while the app is in the background.",
         "NSLocationAlwaysUsageDescription": "Used outdoors to keep counting laps while the app is in the background.",
         "UIBackgroundModes": [
-          "bluetooth-central",
           "location",
           "fetch",
           "processing"
