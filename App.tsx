@@ -1990,6 +1990,26 @@ function SettingsScreen(props: {
         <Text style={styles.settingsDescription}>Orbit Pro - built for athletes who take their training seriously.</Text>
       </View>
 
+      {/* LEGAL */}
+      <View style={styles.card}>
+        <Text style={styles.settingsSectionTitle}>⚖️ Legal</Text>
+        <Pressable
+          onPress={() => Linking.openURL('https://senthilmkm.github.io/lap-counter/privacy.html')}
+          style={styles.settingsLegalRow}
+        >
+          <Text style={styles.settingsLegalLabel}>Privacy Policy</Text>
+          <Text style={styles.settingsLegalValue}>›</Text>
+        </Pressable>
+        <View style={styles.settingsDivider} />
+        <Pressable
+          onPress={() => Linking.openURL('https://www.apple.com/legal/internet-services/itunes/dev/stdeula/')}
+          style={styles.settingsLegalRow}
+        >
+          <Text style={styles.settingsLegalLabel}>Terms of Use (EULA)</Text>
+          <Text style={styles.settingsLegalValue}>›</Text>
+        </Pressable>
+      </View>
+
       {/* DEBUG PANEL (hidden until 7-tap unlocked) */}
       {props.showSettingsDebug && (
         <View style={styles.card}>
@@ -2744,6 +2764,25 @@ const styles = StyleSheet.create({
     color: '#e2e8f0',
     fontSize: 14,
     fontWeight: '600',
+  },
+  settingsLegalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  settingsLegalLabel: {
+    color: '#94a3b8',
+    fontSize: 14,
+  },
+  settingsLegalValue: {
+    color: '#3b82f6',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  settingsDivider: {
+    height: 1,
+    backgroundColor: '#1f2937',
   },
   // Onboarding wizard styles
   onboardingOverlay: {
