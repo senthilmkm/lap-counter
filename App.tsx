@@ -1980,8 +1980,8 @@ function SettingsScreen(props: {
             <Text style={styles.toggleLabel}>Use BLE Beacons (Indoor)</Text>
             <Pressable
               onPress={() => Alert.alert(
-                'BLE Beacons vs Indoor Mode',
-                '• Indoor Mode (on home screen) is the general tracker for indoor gym loops, using magnetic + motion sensors to detect lap crossings BLE-free.\n\n• BLE Beacons Toggle (in settings) is an optional helper. If enabled, the app integrates nearby Bluetooth beacon signals to make lap detection even more accurate.\n\nTurn this OFF if you do not use physical beacons or want to save battery.'
+                'BLE Beacons & Setup Guide',
+                '• BLE Beacons (Indoor) is an optional helper that integrates nearby Bluetooth beacon signals to make lap detection extremely accurate.\n\nSetup Guide:\n1. Place your beacon at the start/finish line.\n2. Ensure this toggle is ON.\n3. Stand next to the beacon when tapping "Start Workout".\n\nThe app automatically fingerprints the beacon during calibration (no UUID setup required!).'
               )}
               style={{ padding: 6, marginLeft: 4 }}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
@@ -1991,7 +1991,15 @@ function SettingsScreen(props: {
           </View>
           <Switch
             value={!props.disableBle}
-            onValueChange={(val) => props.onDisableBleChange(!val)}
+            onValueChange={(val) => {
+              props.onDisableBleChange(!val);
+              if (val) {
+                Alert.alert(
+                  'BLE Beacon Setup Guide',
+                  'To use physical beacons:\n\n1. Place your beacon at the start/finish line.\n2. Stand next to the beacon when you tap "Start Workout".\n\nThe app will automatically detect and fingerprint your beacon during the 5-second calibration phase.'
+                );
+              }
+            }}
             trackColor={{ true: '#10b981', false: '#374151' }}
           />
         </View>
