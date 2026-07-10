@@ -1,6 +1,8 @@
 import * as Location from 'expo-location';
 
 import type { GeoPoint } from '../logic/outdoorLapDetector';
+import { BACKGROUND_LOCATION_TASK_NAME } from '../services/locationBackgroundTask';
+
 
 export type LocationTrackerHandle = {
   /** Latest known position, or null if no fix yet. */
@@ -136,3 +138,33 @@ export async function startLocationTracking(
     },
   };
 }
+
+/**
+ * Start background location updates.
+ */
+export async function startBackgroundLocationTracking(options: LocationStartOptions = {}): Promise<void> {
+  const hasStarted = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK_NAME).catch(() => false);
+  if (hasStarted) return;
+  await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK_NAME, {
+    accuracy: Location.Accuracy.BestForNavigation,
+    distanceInterval: options.distanceIntervalM ?? 2,
+    timeInterval: options.timeIntervalMs ?? 1000,
+    showsBackgroundLocationIndicator: true,
+    foregroundService: {
+      notificationTitle: 'Orbit',
+      notificationBody: 'Tracking outdoor lap count in the background.',
+      notificationColor: '#10b981',
+    },
+  });
+}
+
+/**
+ * Stop background location updates.
+ */
+export async function stopBackgroundLocationTracking(): Promise<void> {
+  const hasStarted = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK_NAME).catch(() => false);
+  if (hasStarted) {
+    await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK_NAME);
+  }
+}
+

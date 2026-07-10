@@ -124,4 +124,20 @@ describe('Calorie Calculation & Settings persistence features', () => {
       runSpy.mockRestore();
     });
   });
+
+  describe('SQLite Workout Deletion', () => {
+    it('deletes workout from SQLite workouts table using runSync', () => {
+      const { deleteWorkout, getDatabase } = require('../src/services/database');
+      const db = getDatabase();
+      const runSpy = jest.spyOn(db!, 'runSync');
+
+      const result = deleteWorkout('workout_123');
+      expect(result).toBe(true);
+      expect(runSpy).toHaveBeenCalledWith(
+        'DELETE FROM workouts WHERE id = ?',
+        ['workout_123']
+      );
+      runSpy.mockRestore();
+    });
+  });
 });

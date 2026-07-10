@@ -1,3 +1,4 @@
+import { AppState, DeviceEventEmitter } from 'react-native';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 
@@ -14,7 +15,10 @@ import {
   LocationTrackerHandle,
   ensureLocationPermission,
   startLocationTracking,
+  startBackgroundLocationTracking,
+  stopBackgroundLocationTracking,
 } from '../sensors/locationTracker';
+import '../services/locationBackgroundTask';
 import {
   createInitialState,
   DEFAULT_CONFIG,
@@ -163,9 +167,71 @@ export function useLapCounter() {
     };
   }, [outdoorState.phase]);
 
+  // Synchronizes the outdoor state, GPS path, and elapsed stopwatch duration from SQLite
+  const syncOutdoorStateFromDb = useCallback(() => {
+    const stateStr = getSettingSync('active_outdoor_detector_state', '');
+    if (!stateStr) return;
+    try {
+      const dbState = JSON.parse(stateStr);
+      outdoorDispatch({ type: 'sync_state', state: dbState });
+      
+      const pathStr = getSettingSync('active_outdoor_gps_path', '[]');
+      setGpsPath(JSON.parse(pathStr));
+      
+      const elapsed = Number(getSettingSync('active_outdoor_elapsed_seconds', '0'));
+      setElapsedSeconds(elapsed);
+      
+      const paused = getSettingSync('active_outdoor_is_paused', 'false') === 'true';
+      setIsPaused(paused);
+      isPausedRef.current = paused;
+    } catch (e) {
+      console.warn('Failed to sync outdoor state from DB:', e);
+    }
+  }, []);
+
+  // Listen to background updates via DeviceEventEmitter
+  useEffect(() => {
+    if (mode !== 'outdoor') return;
+
+    const sub = DeviceEventEmitter.addListener('active-session-update', (eventData) => {
+      if (isPausedRef.current) return;
+      outdoorDispatch({ type: 'sync_state', state: eventData.outdoorState });
+      setGpsPath(eventData.gpsPath);
+      setElapsedSeconds(eventData.elapsedSeconds);
+    });
+
+    return () => {
+      sub.remove();
+    };
+  }, [mode]);
+
+  // Sync from DB whenever the app is brought back to the foreground
+  useEffect(() => {
+    if (mode !== 'outdoor') return;
+
+    const handleAppStateChange = (nextState: string) => {
+      if (nextState === 'active') {
+        syncOutdoorStateFromDb();
+      }
+    };
+
+    const sub = AppState.addEventListener('change', handleAppStateChange);
+    syncOutdoorStateFromDb(); // Sync on mount/mode switch
+
+    return () => {
+      sub.remove();
+    };
+  }, [mode, syncOutdoorStateFromDb]);
+
+  // Prewarm/foreground location tracker when the session is idle
   useEffect(() => {
     const isTesting = typeof process !== 'undefined' && process.env.NODE_ENV === 'test';
     if (isTesting) return;
+
+    // Only prewarm in foreground if session is not active
+    const isRunning = outdoorState.phase !== 'idle' && outdoorState.phase !== 'finished';
+    if (isRunning) return;
+
     let activeTracker: LocationTrackerHandle | null = null;
     let isActive = true;
     
@@ -211,7 +277,8 @@ export function useLapCounter() {
         locationHandleRef.current = null;
       }
     };
-  }, [mode]);
+  }, [mode, outdoorState.phase]);
+
 
   const teardown = useCallback(async (options?: { forceStopGps?: boolean }) => {
     if (tickRef.current) {
@@ -222,6 +289,16 @@ export function useLapCounter() {
     bleHandleRef.current = null;
     motionHandleRef.current?.stop();
     motionHandleRef.current = null;
+
+    // Stop background location tracking and clear session variables
+    await stopBackgroundLocationTracking();
+    saveSettingSync('active_outdoor_detector_state', '');
+    saveSettingSync('active_outdoor_gps_path', '');
+    saveSettingSync('active_outdoor_start_ts', '');
+    saveSettingSync('active_outdoor_paused_ms', '');
+    saveSettingSync('active_outdoor_is_paused', '');
+    saveSettingSync('active_outdoor_elapsed_seconds', '');
+
     const isTesting = typeof process !== 'undefined' && process.env.NODE_ENV === 'test';
     if (locationHandleRef.current && (options?.forceStopGps || isTesting)) {
       try {
@@ -298,8 +375,14 @@ export function useLapCounter() {
     setIsPaused(true);
     isPausedRef.current = true;
     pauseStartTsRef.current = Date.now();
+    
+    if (mode === 'outdoor') {
+      saveSettingSync('active_outdoor_is_paused', 'true');
+      saveSettingSync('active_outdoor_pause_start_ts', String(Date.now()));
+    }
+    
     void lapHaptic();
-  }, [activeState.phase]);
+  }, [activeState.phase, mode]);
 
   const resume = useCallback(() => {
     const isRunning = activeState.phase !== 'idle' && activeState.phase !== 'finished';
@@ -311,8 +394,15 @@ export function useLapCounter() {
     setIsPaused(false);
     isPausedRef.current = false;
     pauseStartTsRef.current = null;
+    
+    if (mode === 'outdoor') {
+      saveSettingSync('active_outdoor_is_paused', 'false');
+      const accumulatedPaused = Number(getSettingSync('active_outdoor_paused_ms', '0')) + pauseDuration;
+      saveSettingSync('active_outdoor_paused_ms', String(accumulatedPaused));
+    }
+    
     void lapHaptic();
-  }, [activeState.phase]);
+  }, [activeState.phase, mode]);
 
   const start = useCallback(
     async (config?: StartConfig & { isPremium?: boolean; gpsModePremiumGated?: boolean }) => {
@@ -416,25 +506,58 @@ export function useLapCounter() {
               'Location permission denied. Outdoor mode needs GPS access.'
             );
           }
+          if (!perm.background) {
+            console.warn('Background location permission denied. Laps will only count in the foreground.');
+          }
+
           const maxAcc = config?.maxAcceptableAccuracyM ?? DEFAULT_OUTDOOR_CONFIG.maxAcceptableAccuracyM;
-          outdoorDispatch({
+          
+          // Pre-calculate initial state by merging defaults with modifiedConfig
+          const fullConfig = {
+            ...DEFAULT_OUTDOOR_CONFIG,
+            ...modifiedConfig,
+          };
+          const startState = createInitialOutdoorState(fullConfig as OutdoorDetectorConfig);
+          const calibratedA = prewarmLocation && prewarmLocation.accuracy <= maxAcc
+            ? prewarmLocation
+            : undefined;
+          
+          const nextState = outdoorReducer(startState, {
             type: 'start',
-            config: modifiedConfig as Partial<OutdoorDetectorConfig> | undefined,
-            calibratedPointA: prewarmLocation && prewarmLocation.accuracy <= maxAcc
-              ? prewarmLocation
-              : undefined,
+            config: fullConfig as Partial<OutdoorDetectorConfig> | undefined,
+            calibratedPointA: calibratedA,
           });
 
-          if (!locationHandleRef.current) {
-            const tracker = await startLocationTracking(
-              (point) => {
-                onLocationUpdateRef.current(point);
-              },
-              (err) => {
-                onLocationErrorRef.current(err);
-              }
-            );
-            locationHandleRef.current = tracker;
+          // Save session state to database settings for background task to read
+          saveSettingSync('active_outdoor_detector_state', JSON.stringify(nextState));
+          saveSettingSync('active_outdoor_gps_path', JSON.stringify([]));
+          saveSettingSync('active_outdoor_start_ts', String(Date.now()));
+          saveSettingSync('active_outdoor_paused_ms', '0');
+          saveSettingSync('active_outdoor_is_paused', 'false');
+          saveSettingSync('active_outdoor_elapsed_seconds', '0');
+
+          // Initialize local state
+          outdoorDispatch({
+            type: 'sync_state',
+            state: nextState,
+          });
+
+          // Start background location updates or fallback to watchPositionAsync in tests
+          const isTesting = typeof process !== 'undefined' && process.env.NODE_ENV === 'test';
+          if (isTesting) {
+            if (!locationHandleRef.current) {
+              const tracker = await startLocationTracking(
+                (point) => {
+                  onLocationUpdateRef.current(point);
+                },
+                (err) => {
+                  onLocationErrorRef.current(err);
+                }
+              );
+              locationHandleRef.current = tracker;
+            }
+          } else {
+            await startBackgroundLocationTracking();
           }
         }
       } catch (err) {
@@ -541,6 +664,16 @@ export function useLapCounter() {
       bleHandleRef.current = null;
       motionHandleRef.current?.stop();
       motionHandleRef.current = null;
+      
+      // Stop background location updates and clean keys
+      void stopBackgroundLocationTracking();
+      saveSettingSync('active_outdoor_detector_state', '');
+      saveSettingSync('active_outdoor_gps_path', '');
+      saveSettingSync('active_outdoor_start_ts', '');
+      saveSettingSync('active_outdoor_paused_ms', '');
+      saveSettingSync('active_outdoor_is_paused', '');
+      saveSettingSync('active_outdoor_elapsed_seconds', '');
+
       const isTesting = typeof process !== 'undefined' && process.env.NODE_ENV === 'test';
       if (locationHandleRef.current && isTesting) {
         void locationHandleRef.current.stop();

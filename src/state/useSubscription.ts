@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import { PurchasesPackage } from 'react-native-purchases';
 import {
@@ -16,22 +16,34 @@ export function useSubscription() {
   const [subTier, setSubTier] = useState<'free' | 'monthly' | 'annual'>('free');
   const [packages, setPackages] = useState<PurchasesPackage[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const isMountedRef = useRef<boolean>(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const checkEntitlements = useCallback(async () => {
     try {
       const activeTier = await getActiveSubscriptionTier();
+      if (!isMountedRef.current) return;
       setSubTier(activeTier);
       setIsPremium(activeTier !== 'free');
       
       // Load packages if they haven't been fetched yet
       if (activeTier === 'free' && packages.length === 0) {
         const available = await getSubscriptionPackages();
+        if (!isMountedRef.current) return;
         setPackages(available);
       }
     } catch (e) {
       console.warn('Error checking entitlements:', e);
     } finally {
-      setLoading(false);
+      if (isMountedRef.current) {
+        setLoading(false);
+      }
     }
   }, [packages.length]);
 
@@ -39,12 +51,14 @@ export function useSubscription() {
   useEffect(() => {
     // Initialize billing client asynchronously
     initBilling().then(() => {
-      checkEntitlements();
+      if (isMountedRef.current) {
+        checkEntitlements();
+      }
     });
 
     // Refresh when app comes back to foreground
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
-      if (nextAppState === 'active') {
+      if (nextAppState === 'active' && isMountedRef.current) {
         checkEntitlements();
       }
     };
@@ -58,8 +72,10 @@ export function useSubscription() {
   const buyPackage = async (pkg: PurchasesPackage): Promise<boolean> => {
     setLoading(true);
     const success = await purchaseSubscription(pkg);
+    if (!isMountedRef.current) return success;
     if (success) {
       const activeTier = await getActiveSubscriptionTier();
+      if (!isMountedRef.current) return success;
       setSubTier(activeTier);
       setIsPremium(activeTier !== 'free');
       triggerSuccessHaptic();
@@ -73,8 +89,10 @@ export function useSubscription() {
   const restore = async (): Promise<boolean> => {
     setLoading(true);
     const success = await restorePurchases();
+    if (!isMountedRef.current) return success;
     if (success) {
       const activeTier = await getActiveSubscriptionTier();
+      if (!isMountedRef.current) return success;
       setSubTier(activeTier);
       setIsPremium(activeTier !== 'free');
       triggerSuccessHaptic();

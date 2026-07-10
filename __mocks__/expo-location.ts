@@ -84,6 +84,26 @@ export const watchPositionAsync = jest.fn(
   }
 );
 
+let backgroundLocationUpdatesStarted = false;
+
+export const startLocationUpdatesAsync = jest.fn(
+  async (_taskName: string, _options: unknown) => {
+    backgroundLocationUpdatesStarted = true;
+  }
+);
+
+export const stopLocationUpdatesAsync = jest.fn(
+  async (_taskName: string) => {
+    backgroundLocationUpdatesStarted = false;
+  }
+);
+
+export const hasStartedLocationUpdatesAsync = jest.fn(
+  async (_taskName: string) => {
+    return backgroundLocationUpdatesStarted;
+  }
+);
+
 export function __emitPosition(opts: {
   latitude: number;
   longitude: number;
@@ -131,6 +151,7 @@ export function __resetLocation(): void {
   };
   servicesEnabled = true;
   watchers.length = 0;
+  backgroundLocationUpdatesStarted = false;
   requestForegroundPermissionsAsync.mockClear();
   requestBackgroundPermissionsAsync.mockClear();
   getForegroundPermissionsAsync.mockClear();
@@ -139,4 +160,8 @@ export function __resetLocation(): void {
   getLastKnownPositionAsync.mockClear();
   getCurrentPositionAsync.mockClear();
   watchPositionAsync.mockClear();
+  startLocationUpdatesAsync.mockClear();
+  stopLocationUpdatesAsync.mockClear();
+  hasStartedLocationUpdatesAsync.mockClear();
 }
+

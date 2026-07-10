@@ -51,11 +51,28 @@ jest.mock('expo-sqlite', () => ({
 }));
 
 // Mock expo-file-system
-jest.mock('expo-file-system', () => ({
-  writeAsStringAsync: jest.fn(async () => undefined),
-  cacheDirectory: 'file://mock-cache/',
-  EncodingType: { UTF8: 'utf8' },
-}));
+jest.mock('expo-file-system', () => {
+  class MockFile {
+    uri: string;
+    constructor(...parts: any[]) {
+      this.uri = parts.map(part => typeof part === 'object' ? part.uri : part).join('/');
+    }
+    write = jest.fn();
+    delete = jest.fn();
+    exists = true;
+    size = 100;
+  }
+  return {
+    File: MockFile,
+    Paths: {
+      cache: { uri: 'file://mock-cache/' },
+      document: { uri: 'file://mock-document/' },
+    },
+    EncodingType: { UTF8: 'utf8' },
+    writeAsStringAsync: jest.fn(async () => undefined),
+    cacheDirectory: 'file://mock-cache/',
+  };
+});
 
 // Mock expo-sharing
 jest.mock('expo-sharing', () => ({

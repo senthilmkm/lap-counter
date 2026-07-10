@@ -1,4 +1,4 @@
-import { cacheDirectory, writeAsStringAsync, EncodingType } from 'expo-file-system/legacy';
+import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { Alert } from 'react-native';
 
@@ -95,15 +95,13 @@ export async function exportWorkoutFile(fileName: string, fileContent: string): 
       return false;
     }
 
-    const fileUri = `${cacheDirectory}${fileName}`;
+    const file = new File(Paths.cache, fileName);
     
     // Write text string to temporary cache
-    await writeAsStringAsync(fileUri, fileContent, {
-      encoding: EncodingType.UTF8,
-    });
+    file.write(fileContent);
 
     // Launch sharing controller sheet
-    await Sharing.shareAsync(fileUri, {
+    await Sharing.shareAsync(file.uri, {
       mimeType: fileName.endsWith('.gpx') ? 'application/gpx+xml' : 'text/csv',
       dialogTitle: `Export Workout File: ${fileName}`,
     });

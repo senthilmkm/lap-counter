@@ -25,7 +25,7 @@ import type { DetectorState } from './src/logic/lapDetector';
 import { OutdoorDetectorState, GeoPoint, haversineDistance } from './src/logic/outdoorLapDetector';
 import { useSubscription } from './src/state/useSubscription';
 import { exportWorkoutFile, generateGPX, generateCSV, ExporterLap } from './src/services/exporter';
-import { saveWorkout, getWorkouts, getWorkoutPath, DBWorkout, getSettingSync, saveSettingSync } from './src/services/database';
+import { saveWorkout, getWorkouts, getWorkoutPath, DBWorkout, getSettingSync, saveSettingSync, deleteWorkout } from './src/services/database';
 import WorkoutMap from './src/components/WorkoutMap';
 
 const KEEP_AWAKE_TAG = 'lap-counter-session';
@@ -633,6 +633,29 @@ export default function App() {
     await exportWorkoutFile(`workout_${workout.startTime}.gpx`, content);
   };
 
+  const handleDeleteWorkout = (workout: DBWorkout) => {
+    Alert.alert(
+      'Delete Workout',
+      'Are you sure you want to permanently delete this workout and all its path points?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            const success = deleteWorkout(workout.id);
+            if (success) {
+              reloadHistory();
+              setSelectedWorkout(null);
+            } else {
+              Alert.alert('Error', 'Failed to delete the workout.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.safeArea}>
@@ -1176,6 +1199,17 @@ export default function App() {
                     <Pressable onPress={() => setSelectedWorkout(null)} style={[styles.primaryButton, { width: '100%', marginTop: 16 }]}>
                       <Text style={styles.primaryButtonText}>Close Summary</Text>
                     </Pressable>
+
+                    <Pressable
+                      onPress={() => handleDeleteWorkout(selectedWorkout)}
+                      style={({ pressed }) => [
+                        styles.secondaryButton,
+                        { flex: 0, width: '100%', marginTop: 8 },
+                        pressed && styles.secondaryButtonPressed
+                      ]}
+                    >
+                      <Text style={styles.secondaryButtonText}>🗑️ Delete Workout</Text>
+                    </Pressable>
                   </ScrollView>
                 </View>
               </View>
@@ -1355,7 +1389,7 @@ function SetupCard(props: {
       </Pressable>
       <Text style={styles.helpText}>
         {props.mode === 'indoor'
-          ? 'Stand at your starting point before tapping Start. The app calibrates for ~5 seconds, then counts laps using your device\'s sensors.'
+          ? 'Stand at your starting point before tapping Start. The app calibrates for ~5 seconds, then counts laps using your device\'s sensors.\n\n* Note: For indoor tracking, the app must remain open (foreground) and your screen unlocked.'
           : 'Stand at your starting point before tapping Start. The app locks onto GPS for ~8 seconds, then counts laps each time you return within 15 m of the start.\n\n* Note: Continued use of GPS tracking in the background may significantly decrease battery life.'}
       </Text>
     </View>

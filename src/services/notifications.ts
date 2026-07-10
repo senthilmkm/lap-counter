@@ -107,3 +107,28 @@ export async function cancelAllNotifications(): Promise<void> {
     // ignore
   }
 }
+
+/**
+ * Schedule a local "Lap X complete" notification.
+ */
+export async function notifyLapCompleted(
+  count: number,
+  target: number
+): Promise<string | null> {
+  try {
+    const granted = await ensureNotificationPermission();
+    if (!granted) return null;
+    return await Notifications.scheduleNotificationAsync({
+      content: {
+        title: 'Orbit',
+        body: `Lap ${count} complete!`,
+        data: { type: 'lap-completed', count, target },
+        sound: 'default',
+      },
+      trigger: null, // immediate
+    });
+  } catch {
+    return null;
+  }
+}
+

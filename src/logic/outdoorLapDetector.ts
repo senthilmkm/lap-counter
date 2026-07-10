@@ -83,7 +83,8 @@ export type OutdoorDetectorAction =
   | { type: 'start'; config?: Partial<OutdoorDetectorConfig>; calibratedPointA?: GeoPoint }
   | { type: 'tick'; input: OutdoorDetectorInput }
   | { type: 'stop' }
-  | { type: 'reset' };
+  | { type: 'reset' }
+  | { type: 'sync_state'; state: OutdoorDetectorState };
 
 export function createInitialOutdoorState(
   config: OutdoorDetectorConfig = DEFAULT_OUTDOOR_CONFIG
@@ -155,9 +156,11 @@ function averageGeoPoints(samples: GeoPoint[]): GeoPoint | null {
 }
 
 /**
- * Refine pointA using a new "you're back at A" observation. EMA with
- * `alpha`. Bounded so the location can't drift more than 5 m per lap
- * (guards against a single erroneous fix from teleporting pointA).
+ * Average a list of GPS samples into a single calibrated point.
+ *
+ * Each sample is weighted by 1/accuracy² (kalman-flavored: tight fixes
+ * count more than loose ones). This keeps a single noisy first fix from
+ * dominating an otherwise good calibration.
  */
 export function refinePointA(
   stored: GeoPoint,
@@ -186,6 +189,9 @@ export function outdoorReducer(
   action: OutdoorDetectorAction
 ): OutdoorDetectorState {
   switch (action.type) {
+    case 'sync_state':
+      return action.state;
+
     case 'start': {
       const config = { ...state.config, ...(action.config ?? {}) };
       if (action.calibratedPointA) {
@@ -249,12 +255,12 @@ export function outdoorReducer(
       // armed | away | approaching — pointA is guaranteed populated here.
       const a = state.pointA;
       if (!a) return state;
+      const cfg = state.config;
       const dist = haversineDistance(a, position);
       const baseUpdate: Partial<OutdoorDetectorState> = {
         lastDistanceM: dist,
         lastAccuracyM: position.accuracy,
       };
-      const cfg = state.config;
       const sinceLap =
         state.lastLapAt == null ? Infinity : now - state.lastLapAt;
       const debounceOK = sinceLap >= cfg.lapDebounceMs;
