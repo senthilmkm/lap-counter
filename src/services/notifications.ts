@@ -132,3 +132,24 @@ export async function notifyLapCompleted(
   }
 }
 
+/**
+ * Schedule a local warning notification when the app is backgrounded/locked during an indoor session.
+ */
+export async function notifyIndoorBackgroundWarning(): Promise<string | null> {
+  try {
+    const granted = await ensureNotificationPermission();
+    if (!granted) return null;
+    return await Notifications.scheduleNotificationAsync({
+      content: {
+        title: '⚠️ Indoor Tracking Paused',
+        body: 'Indoor tracking requires the app to remain open and screen unlocked. Tap here to resume.',
+        data: { type: 'indoor-background-warning' },
+        sound: 'default',
+      },
+      trigger: null, // immediate
+    });
+  } catch {
+    return null;
+  }
+}
+

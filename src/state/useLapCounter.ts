@@ -42,6 +42,7 @@ import {
   ensureNotificationPermission,
   installForegroundHandler,
   notifyTargetReached,
+  notifyIndoorBackgroundWarning,
 } from '../services/notifications';
 import {
   registerBackgroundTask,
@@ -222,6 +223,26 @@ export function useLapCounter() {
       sub.remove();
     };
   }, [mode, syncOutdoorStateFromDb]);
+
+  // Send a local notification warning if the app is backgrounded/locked during an active indoor session
+  useEffect(() => {
+    if (mode !== 'indoor') return;
+
+    const handleAppStateChange = (nextAppState: string) => {
+      if (nextAppState === 'background') {
+        const isRunning = indoorState.phase !== 'idle' && indoorState.phase !== 'finished';
+        const isPaused = isPausedRef.current;
+        if (isRunning && !isPaused) {
+          void notifyIndoorBackgroundWarning();
+        }
+      }
+    };
+
+    const sub = AppState.addEventListener('change', handleAppStateChange);
+    return () => {
+      sub.remove();
+    };
+  }, [mode, indoorState.phase]);
 
   // Prewarm/foreground location tracker when the session is idle
   useEffect(() => {
