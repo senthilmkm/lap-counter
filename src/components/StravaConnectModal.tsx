@@ -1,8 +1,8 @@
 /**
  * StravaConnectModal Component
  * 
- * Provides an interactive modal for connecting, authenticating, and managing
- * Strava OAuth credentials and Auto-Sync settings.
+ * Provides an interactive modal for connecting, authenticating, verifying,
+ * and testing real Strava Cloud Auto-Sync credentials.
  */
 
 import React, { useState, useEffect } from 'react';
@@ -16,6 +16,7 @@ import {
   Alert,
   Linking,
   ScrollView,
+  ActivityIndicator,
 } from 'react-native';
 import {
   isStravaConnected,
@@ -23,6 +24,8 @@ import {
   saveStravaTokens,
   disconnectStrava,
   setStravaAutoSyncEnabled,
+  verifyStravaConnection,
+  uploadWorkoutToStrava,
 } from '../services/stravaService';
 
 interface StravaConnectModalProps {
@@ -42,77 +45,32 @@ export default function StravaConnectModal({
 }: StravaConnectModalProps) {
   const [connected, setConnected] = useState(isStravaConnected());
   const [tokens, setTokens] = useState(getStravaTokens());
-  const [clientIdInput, setClientIdInput] = useState('');
-  const [clientSecretInput, setClientSecretInput] = useState('');
   const [accessTokenInput, setAccessTokenInput] = useState('');
-  const [showManualInputs, setShowManualInputs] = useState(false);
+  const [athleteName, setAthleteName] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [testSuccessMessage, setTestSuccessMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (visible) {
       const isConn = isStravaConnected();
       setConnected(isConn);
-      setTokens(getStravaTokens());
+      const curTokens = getStravaTokens();
+      setTokens(curTokens);
+      if (curTokens?.accessToken) {
+        setAccessTokenInput(curTokens.accessToken);
+        void handleVerifyExisting(curTokens.accessToken);
+      }
     }
   }, [visible]);
 
-  const handleOAuthConnect = async () => {
-    if (!isPremium) {
-      onClose();
-      onShowPaywall();
-      return;
-    }
-
-    const clientId = clientIdInput.trim() || '123456';
-    const authUrl = `https://www.strava.com/oauth/mobile/authorize?client_id=${clientId}&response_type=code&redirect_uri=orbitapp://strava-callback&approval_prompt=force&scope=activity:write,read`;
-
-    try {
-      const supported = await Linking.canOpenURL(authUrl);
-      if (supported) {
-        await Linking.openURL(authUrl);
-      } else {
-        Alert.alert(
-          'Connect with Strava',
-          'Would you like to open Strava authorization in your browser?',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Open Strava', onPress: () => Linking.openURL(authUrl) },
-          ]
-        );
-      }
-    } catch {
-      // Fallback
-      handleQuickDemoConnect();
+  const handleVerifyExisting = async (token: string) => {
+    const res = await verifyStravaConnection();
+    if (res.valid) {
+      setAthleteName(res.athleteName || 'Strava Athlete');
     }
   };
 
-  const handleQuickDemoConnect = () => {
-    if (!isPremium) {
-      onClose();
-      onShowPaywall();
-      return;
-    }
-
-    const futureExpiry = Math.floor(Date.now() / 1000) + 21600; // 6 hours
-    const mockTokens = {
-      accessToken: 'strava_live_access_token_' + Math.random().toString(36).substring(2, 9),
-      refreshToken: 'strava_refresh_token_' + Math.random().toString(36).substring(2, 9),
-      expiresAt: futureExpiry,
-      athleteId: 'runner_' + Math.floor(100000 + Math.random() * 900000),
-    };
-
-    saveStravaTokens(mockTokens);
-    setStravaAutoSyncEnabled(true, isPremium);
-    setConnected(true);
-    setTokens(mockTokens);
-    onConnectionChange(true);
-
-    Alert.alert(
-      'Strava Connected! 🚴‍♂️',
-      'Your Strava account is now connected. Completed workouts will automatically sync to your Strava activity feed!'
-    );
-  };
-
-  const handleSaveManualTokens = () => {
+  const handleSaveAndVerifyToken = async () => {
     if (!isPremium) {
       onClose();
       onShowPaywall();
@@ -121,31 +79,91 @@ export default function StravaConnectModal({
 
     const token = accessTokenInput.trim();
     if (!token) {
-      Alert.alert('Missing Token', 'Please enter your Strava Access Token or use 1-Tap Connect.');
+      Alert.alert('Missing Token', 'Please enter your Strava Access Token from strava.com/settings/api');
       return;
     }
 
-    const futureExpiry = Math.floor(Date.now() / 1000) + 21600;
+    setIsLoading(true);
+    setTestSuccessMessage(null);
+
+    const futureExpiry = Math.floor(Date.now() / 1000) + 21600; // 6 hours
     const newTokens = {
       accessToken: token,
       refreshToken: token,
       expiresAt: futureExpiry,
-      athleteId: 'athlete_' + Math.floor(100000 + Math.random() * 900000),
+      athleteId: 'athlete_pending',
     };
 
     saveStravaTokens(newTokens);
-    setStravaAutoSyncEnabled(true, isPremium);
-    setConnected(true);
-    setTokens(newTokens);
-    onConnectionChange(true);
 
-    Alert.alert('Strava Linked', 'Custom Strava credentials saved successfully.');
+    const check = await verifyStravaConnection();
+    setIsLoading(false);
+
+    if (check.valid) {
+      setConnected(true);
+      setAthleteName(check.athleteName || 'Strava Athlete');
+      setTokens(getStravaTokens());
+      setStravaAutoSyncEnabled(true, isPremium);
+      onConnectionChange(true);
+      Alert.alert(
+        'Strava Connected! 🚴‍♂️',
+        `Successfully verified with Strava!\n\nConnected Athlete: ${check.athleteName}\nAthlete ID: ${check.athleteId}\n\nWorkouts will now auto-upload to your Strava profile!`
+      );
+    } else {
+      Alert.alert(
+        'Strava Verification Failed',
+        `Could not verify this token with Strava API:\n${check.error || 'Invalid token'}\n\nPlease verify that your Access Token has activity:write permission on strava.com/settings/api`
+      );
+    }
+  };
+
+  const handleSendTestWorkout = async () => {
+    if (!isPremium) {
+      onClose();
+      onShowPaywall();
+      return;
+    }
+
+    setIsLoading(true);
+    setTestSuccessMessage(null);
+
+    const dummyWorkout = {
+      id: `test_workout_${Date.now()}`,
+      startTime: Date.now() - 600000,
+      endTime: Date.now(),
+      mode: 'outdoor' as const,
+      totalLaps: 3,
+      steps: 1200,
+      cadence: 162,
+      strideLength: 1.05,
+      yawDrift: 0.2,
+    };
+
+    const res = await uploadWorkoutToStrava(dummyWorkout, [], isPremium);
+    setIsLoading(false);
+
+    if (res.success) {
+      setTestSuccessMessage(`Activity #${res.activityId || 'Live'} created on your Strava profile!`);
+      Alert.alert(
+        'Test Activity Created! 🚴‍♂️',
+        `Successfully pushed a test workout to your Strava feed!\n\nActivity ID: ${res.activityId}\n\nYou can open the Strava app to view it right now!`,
+        [
+          { text: 'View on Strava', onPress: () => Linking.openURL('https://www.strava.com/athlete/training') },
+          { text: 'Done', style: 'cancel' },
+        ]
+      );
+    } else {
+      Alert.alert('Test Upload Failed', res.error || 'Failed to upload test activity.');
+    }
   };
 
   const handleDisconnect = () => {
     disconnectStrava();
     setConnected(false);
     setTokens(null);
+    setAthleteName(null);
+    setAccessTokenInput('');
+    setTestSuccessMessage(null);
     onConnectionChange(false);
     Alert.alert('Strava Disconnected', 'Your Strava credentials have been removed from this device.');
   };
@@ -167,73 +185,91 @@ export default function StravaConnectModal({
             </View>
 
             <Text style={styles.subtitle}>
-              Hands-free auto-sync: Automatically upload your lap splits, cadence, and GPS route polylines to your Strava activity feed!
+              Hands-free auto-sync: Automatically upload your lap splits, cadence, and GPS route to your Strava activity feed!
             </Text>
 
             {/* Connection Status Card */}
             {connected && tokens ? (
               <View style={styles.connectedCard}>
                 <View style={styles.statusBadge}>
-                  <Text style={styles.statusBadgeText}>✓ CONNECTED & ACTIVE</Text>
+                  <Text style={styles.statusBadgeText}>✓ CONNECTED & VERIFIED</Text>
                 </View>
                 <Text style={styles.athleteText}>
-                  Athlete ID: <Text style={{ fontWeight: 'bold', color: '#fff' }}>{tokens.athleteId || 'Active Runner'}</Text>
+                  Athlete: <Text style={{ fontWeight: 'bold', color: '#fff' }}>{athleteName || tokens.athleteId || 'Connected Athlete'}</Text>
                 </Text>
                 <Text style={styles.tokenStatusText}>
-                  🛡️ Auto-Refresh: Active (resilient token management)
+                  🛡️ Auto-Upload: Enabled on workout completion
                 </Text>
                 <Text style={styles.tokenStatusText}>
-                  💾 Offline Queue: Enabled (zero workout loss)
+                  💾 Offline Queue: Active (zero workout loss)
                 </Text>
 
+                {testSuccessMessage && (
+                  <View style={styles.testSuccessBox}>
+                    <Text style={styles.testSuccessText}>✅ {testSuccessMessage}</Text>
+                  </View>
+                )}
+
+                <Pressable
+                  onPress={handleSendTestWorkout}
+                  disabled={isLoading}
+                  style={[styles.testActivityBtn, isLoading && { opacity: 0.6 }]}
+                >
+                  {isLoading ? (
+                    <ActivityIndicator color="#ffffff" size="small" />
+                  ) : (
+                    <Text style={styles.testActivityBtnText}>⚡ Send Test Activity to Strava</Text>
+                  )}
+                </Pressable>
+
                 <Pressable onPress={handleDisconnect} style={styles.disconnectBtn}>
-                  <Text style={styles.disconnectBtnText}>Disconnect Strava</Text>
+                  <Text style={styles.disconnectBtnText}>Disconnect Strava Account</Text>
                 </Pressable>
               </View>
             ) : (
               <View style={styles.notConnectedCard}>
-                <Text style={styles.notConnectedTitle}>Link Your Strava Account</Text>
+                <Text style={styles.notConnectedTitle}>Connect Your Strava Account</Text>
                 <Text style={styles.notConnectedDesc}>
-                  Authorize Orbit with your Strava account to enable instant, automatic workout syncing.
+                  Enter your Strava Access Token to link Orbit with your real Strava profile.
                 </Text>
 
-                {/* Primary 1-Tap Connect Button */}
-                <Pressable onPress={handleQuickDemoConnect} style={styles.connectPrimaryBtn}>
-                  <Text style={styles.connectPrimaryBtnText}>🟠 Connect Strava Account</Text>
-                </Pressable>
+                {/* Step-by-step instruction */}
+                <View style={styles.stepBox}>
+                  <Text style={styles.stepTitle}>📌 How to get your Strava Token (10 Seconds):</Text>
+                  <Text style={styles.stepText}>1. Open your Strava API page:</Text>
+                  <Pressable
+                    onPress={() => Linking.openURL('https://www.strava.com/settings/api')}
+                    style={styles.linkButton}
+                  >
+                    <Text style={styles.linkButtonText}>🌐 Open strava.com/settings/api ↗</Text>
+                  </Pressable>
+                  <Text style={styles.stepText}>2. Scroll down to <Text style={{ color: '#fff', fontWeight: 'bold' }}>"Your Access Token"</Text></Text>
+                  <Text style={styles.stepText}>3. Copy and paste it below:</Text>
+                </View>
 
-                <Pressable onPress={handleOAuthConnect} style={styles.oauthBrowserBtn}>
-                  <Text style={styles.oauthBrowserBtnText}>🌐 Authorize via Strava.com</Text>
-                </Pressable>
+                {/* Token Input */}
+                <Text style={styles.inputLabel}>Strava Access Token:</Text>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="Paste your Strava Access Token here..."
+                  placeholderTextColor="#64748b"
+                  value={accessTokenInput}
+                  onChangeText={setAccessTokenInput}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
 
-                {/* Manual Token Option */}
                 <Pressable
-                  onPress={() => setShowManualInputs(!showManualInputs)}
-                  style={{ marginTop: 12, alignItems: 'center' }}
+                  onPress={handleSaveAndVerifyToken}
+                  disabled={isLoading}
+                  style={[styles.connectPrimaryBtn, isLoading && { opacity: 0.6 }]}
                 >
-                  <Text style={styles.toggleManualText}>
-                    {showManualInputs ? '▲ Hide Advanced API Credentials' : '▼ Advanced: Enter Custom API Token'}
-                  </Text>
+                  {isLoading ? (
+                    <ActivityIndicator color="#ffffff" size="small" />
+                  ) : (
+                    <Text style={styles.connectPrimaryBtnText}>🟠 Verify & Connect Strava</Text>
+                  )}
                 </Pressable>
-
-                {showManualInputs && (
-                  <View style={styles.manualInputBox}>
-                    <Text style={styles.inputLabel}>Strava Access Token:</Text>
-                    <TextInput
-                      style={styles.textInput}
-                      placeholder="e.g. 9a8b7c6d5e4f3a2b..."
-                      placeholderTextColor="#64748b"
-                      value={accessTokenInput}
-                      onChangeText={setAccessTokenInput}
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                    />
-
-                    <Pressable onPress={handleSaveManualTokens} style={styles.saveManualBtn}>
-                      <Text style={styles.saveManualBtnText}>Save Credentials</Text>
-                    </Pressable>
-                  </View>
-                )}
               </View>
             )}
 
@@ -241,7 +277,7 @@ export default function StravaConnectModal({
             <View style={styles.securityBox}>
               <Text style={styles.securityTitle}>🔒 Privacy & Token Security</Text>
               <Text style={styles.securityText}>
-                Your authorization credentials are stored strictly in your on-device local SQLite database. Tokens are never uploaded to any third-party ad server.
+                Your authorization token is stored strictly inside your on-device local SQLite database. It communicates directly with Strava's official HTTPS API.
               </Text>
             </View>
           </ScrollView>
@@ -334,8 +370,31 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 4,
   },
-  disconnectBtn: {
+  testSuccessBox: {
+    backgroundColor: 'rgba(16, 185, 129, 0.2)',
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 10,
+  },
+  testSuccessText: {
+    color: '#34d399',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  testActivityBtn: {
     marginTop: 14,
+    backgroundColor: '#fc4c02',
+    paddingVertical: 10,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  testActivityBtnText: {
+    color: '#ffffff',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  disconnectBtn: {
+    marginTop: 10,
     backgroundColor: 'rgba(239, 68, 68, 0.15)',
     borderWidth: 1,
     borderColor: '#ef4444',
@@ -368,43 +427,40 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginBottom: 14,
   },
-  connectPrimaryBtn: {
-    backgroundColor: '#fc4c02',
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  connectPrimaryBtnText: {
-    color: '#ffffff',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  oauthBrowserBtn: {
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    paddingVertical: 10,
-    borderRadius: 12,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
-  },
-  oauthBrowserBtnText: {
-    color: '#e2e8f0',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  toggleManualText: {
-    color: '#94a3b8',
-    fontSize: 12,
-    textDecorationLine: 'underline',
-  },
-  manualInputBox: {
-    marginTop: 12,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+  stepBox: {
+    backgroundColor: 'rgba(0, 0, 0, 0.35)',
     borderRadius: 12,
     padding: 12,
+    marginBottom: 14,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  stepTitle: {
+    color: '#fb923c',
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  stepText: {
+    color: '#cbd5e1',
+    fontSize: 12,
+    lineHeight: 18,
+    marginBottom: 4,
+  },
+  linkButton: {
+    backgroundColor: 'rgba(252, 76, 2, 0.15)',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    alignSelf: 'flex-start',
+    marginVertical: 4,
+    borderWidth: 1,
+    borderColor: '#fc4c02',
+  },
+  linkButtonText: {
+    color: '#fb923c',
+    fontSize: 12,
+    fontWeight: '700',
   },
   inputLabel: {
     color: '#cbd5e1',
@@ -420,17 +476,18 @@ const styles = StyleSheet.create({
     fontSize: 13,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
-    marginBottom: 10,
+    marginBottom: 12,
   },
-  saveManualBtn: {
-    backgroundColor: '#3b82f6',
-    paddingVertical: 8,
-    borderRadius: 8,
+  connectPrimaryBtn: {
+    backgroundColor: '#fc4c02',
+    paddingVertical: 12,
+    borderRadius: 12,
     alignItems: 'center',
+    marginBottom: 6,
   },
-  saveManualBtnText: {
+  connectPrimaryBtnText: {
     color: '#ffffff',
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '700',
   },
   securityBox: {

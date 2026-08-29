@@ -221,6 +221,48 @@ export async function ensureFreshStravaToken(): Promise<string | null> {
 }
 
 /**
+ * Verifies current Strava credentials against Strava API v3 /athlete endpoint.
+ * Returns the athlete details if valid, or an error message.
+ */
+export async function verifyStravaConnection(): Promise<{
+  valid: boolean;
+  athleteName?: string;
+  athleteId?: string;
+  error?: string;
+}> {
+  const token = await ensureFreshStravaToken();
+  if (!token) {
+    return { valid: false, error: 'No Strava access token found on device.' };
+  }
+
+  try {
+    const res = await fetch('https://www.strava.com/api/v3/athlete', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      const athleteName = `${data.firstname || ''} ${data.lastname || ''}`.trim() || 'Strava Athlete';
+      const athleteId = String(data.id || '');
+      
+      // Update stored athlete ID
+      const tokens = getStravaTokens();
+      if (tokens) {
+        tokens.athleteId = athleteId;
+        saveStravaTokens(tokens);
+      }
+
+      return { valid: true, athleteName, athleteId };
+    } else {
+      const err = await res.json().catch(() => ({ message: res.statusText }));
+      return { valid: false, error: err.message || `Strava verification failed (${res.status})` };
+    }
+  } catch (e) {
+    return { valid: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/**
  * Uploads a single workout to Strava.
  * Strictly checks isPremium, refreshes tokens, and manages the offline queue.
  */
@@ -250,75 +292,70 @@ export async function uploadWorkoutToStrava(
 
   try {
     const isOutdoor = workout.mode === 'outdoor' && path.length > 0;
-    let fileBlob: string;
-    let dataType = 'gpx';
+    const durationSeconds = Math.max(1, Math.round((workout.endTime - workout.startTime) / 1000));
+    const title = `Orbit ${workout.mode === 'indoor' ? 'Indoor' : 'Outdoor'} Laps - ${workout.totalLaps} Laps`;
+    const description = `Tracked hands-free with Orbit Lap Counter.\n• Total Laps: ${workout.totalLaps}\n• Cadence: ${Math.round(workout.cadence)} spm\n• Steps: ${workout.steps}`;
 
+    // Attempt 1: If Outdoor with GPS points, try GPX upload
     if (isOutdoor) {
-      fileBlob = generateGPX(path, workout.startTime);
-    } else {
-      fileBlob = `<?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.1" creator="Orbit Lap Counter" xmlns="http://www.topografix.com/GPX/1/1">
-  <metadata>
-    <name>Orbit Indoor Lap Session - ${workout.totalLaps} Laps</name>
-    <time>${new Date(workout.startTime).toISOString()}</time>
-  </metadata>
-  <trk>
-    <name>Orbit Indoor Track (${workout.totalLaps} Laps)</name>
-    <type>Run</type>
-    <trkseg></trkseg>
-  </trk>
-</gpx>`;
+      const fileBlob = generateGPX(path, workout.startTime);
+      const formData = new FormData();
+      formData.append('data_type', 'gpx');
+      formData.append('name', title);
+      formData.append('description', description);
+      formData.append('activity_type', 'Run');
+      formData.append('file', fileBlob as unknown as Blob);
+
+      const response = await fetch('https://www.strava.com/api/v3/uploads', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${validAccessToken}`,
+        },
+        body: formData,
+      });
+
+      if (response.ok) {
+        const resData = await response.json();
+        removeWorkoutFromPendingSync(workout.id);
+        markWorkoutSyncedToStrava(workout.id);
+        return {
+          success: true,
+          activityId: resData.id_str || String(resData.id),
+        };
+      }
     }
 
-    const formData = new FormData();
-    formData.append('data_type', dataType);
-    formData.append('name', `Orbit ${workout.mode === 'indoor' ? 'Indoor' : 'Outdoor'} Laps - ${workout.totalLaps} Laps`);
-    formData.append('description', `Tracked hands-free with Orbit Lap Counter.\n• Total Laps: ${workout.totalLaps}\n• Cadence: ${Math.round(workout.cadence)} spm\n• Steps: ${workout.steps}`);
-    formData.append('activity_type', 'Run');
-    formData.append('file', fileBlob as unknown as Blob);
-
-    let response = await fetch('https://www.strava.com/api/v3/uploads', {
+    // Attempt 2 / Direct Activity Fallback: POST /api/v3/activities
+    const directRes = await fetch('https://www.strava.com/api/v3/activities', {
       method: 'POST',
       headers: {
+        'Content-Type': 'application/json',
         Authorization: `Bearer ${validAccessToken}`,
       },
-      body: formData,
+      body: JSON.stringify({
+        name: title,
+        type: 'Run',
+        sport_type: 'Run',
+        start_date_local: new Date(workout.startTime).toISOString(),
+        elapsed_time: durationSeconds,
+        description: description,
+      }),
     });
 
-    // If 401 Unauthorized occurs, force token refresh and retry once
-    if (response.status === 401) {
-      console.warn('Strava returned 401 Unauthorized. Retrying with fresh token...');
-      const tokens = getStravaTokens();
-      if (tokens) {
-        tokens.expiresAt = 0; // Force refresh
-        saveStravaTokens(tokens);
-      }
-      const refreshedToken = await ensureFreshStravaToken();
-      if (refreshedToken && refreshedToken !== validAccessToken) {
-        response = await fetch('https://www.strava.com/api/v3/uploads', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${refreshedToken}`,
-          },
-          body: formData,
-        });
-      }
-    }
-
-    if (response.ok) {
-      const resData = await response.json();
+    if (directRes.ok) {
+      const actData = await directRes.json();
       removeWorkoutFromPendingSync(workout.id);
       markWorkoutSyncedToStrava(workout.id);
       return {
         success: true,
-        activityId: resData.id_str || String(resData.id),
+        activityId: String(actData.id),
       };
     } else {
-      const errData = await response.json().catch(() => ({ message: response.statusText }));
+      const errData = await directRes.json().catch(() => ({ message: directRes.statusText }));
       markWorkoutPendingSync(workout.id);
       return {
         success: false,
-        error: errData.message || `Strava upload failed with status ${response.status}`,
+        error: errData.message || `Strava upload returned status ${directRes.status}`,
       };
     }
   } catch (e) {
@@ -327,7 +364,7 @@ export async function uploadWorkoutToStrava(
     markWorkoutPendingSync(workout.id);
     return {
       success: false,
-      error: `Network offline: Workout queued for automatic sync to Strava (${msg})`,
+      error: `Workout queued for automatic sync to Strava (${msg})`,
     };
   }
 }
