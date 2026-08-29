@@ -48,6 +48,7 @@ export default function StravaConnectModal({
   const [accessTokenInput, setAccessTokenInput] = useState('');
   const [athleteName, setAthleteName] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [testSuccessMessage, setTestSuccessMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -67,6 +68,25 @@ export default function StravaConnectModal({
     const res = await verifyStravaConnection();
     if (res.valid) {
       setAthleteName(res.athleteName || 'Strava Athlete');
+    }
+  };
+
+  const handleOAuthLogin = async () => {
+    if (!isPremium) {
+      onClose();
+      onShowPaywall();
+      return;
+    }
+
+    const authUrl = 'https://www.strava.com/oauth/mobile/authorize?client_id=141888&response_type=code&redirect_uri=orbitapp://strava-callback&approval_prompt=auto&scope=activity:write,read';
+    
+    try {
+      await Linking.openURL(authUrl);
+    } catch {
+      Alert.alert(
+        'Connect with Strava',
+        'Could not open Strava login directly. Please verify you have an internet connection or enter your token below.'
+      );
     }
   };
 
@@ -112,7 +132,7 @@ export default function StravaConnectModal({
     } else {
       Alert.alert(
         'Strava Verification Failed',
-        `Could not verify this token with Strava API:\n${check.error || 'Invalid token'}\n\nPlease verify that your Access Token has activity:write permission on strava.com/settings/api`
+        `Could not verify this token with Strava API:\n${check.error || 'Invalid token'}\n\nPlease check that the token was copied correctly.`
       );
     }
   };
@@ -230,46 +250,68 @@ export default function StravaConnectModal({
               <View style={styles.notConnectedCard}>
                 <Text style={styles.notConnectedTitle}>Connect Your Strava Account</Text>
                 <Text style={styles.notConnectedDesc}>
-                  Enter your Strava Access Token to link Orbit with your real Strava profile.
+                  Link your Strava account to automatically sync every workout.
                 </Text>
 
-                {/* Step-by-step instruction */}
-                <View style={styles.stepBox}>
-                  <Text style={styles.stepTitle}>📌 How to get your Strava Token (10 Seconds):</Text>
-                  <Text style={styles.stepText}>1. Open your Strava API page:</Text>
-                  <Pressable
-                    onPress={() => Linking.openURL('https://www.strava.com/settings/api')}
-                    style={styles.linkButton}
-                  >
-                    <Text style={styles.linkButtonText}>🌐 Open strava.com/settings/api ↗</Text>
-                  </Pressable>
-                  <Text style={styles.stepText}>2. Scroll down to <Text style={{ color: '#fff', fontWeight: 'bold' }}>"Your Access Token"</Text></Text>
-                  <Text style={styles.stepText}>3. Copy and paste it below:</Text>
+                {/* Primary 1-Tap OAuth Login Button */}
+                <Pressable
+                  onPress={handleOAuthLogin}
+                  style={styles.connectPrimaryBtn}
+                >
+                  <Text style={styles.connectPrimaryBtnText}>🟠 Log in with Strava</Text>
+                </Pressable>
+
+                <View style={styles.dividerRow}>
+                  <View style={styles.dividerLine} />
+                  <Text style={styles.dividerText}>OR</Text>
+                  <View style={styles.dividerLine} />
                 </View>
 
-                {/* Token Input */}
-                <Text style={styles.inputLabel}>Strava Access Token:</Text>
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="Paste your Strava Access Token here..."
-                  placeholderTextColor="#64748b"
-                  value={accessTokenInput}
-                  onChangeText={setAccessTokenInput}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
-
+                {/* Advanced Manual Token Section */}
                 <Pressable
-                  onPress={handleSaveAndVerifyToken}
-                  disabled={isLoading}
-                  style={[styles.connectPrimaryBtn, isLoading && { opacity: 0.6 }]}
+                  onPress={() => setShowAdvanced(!showAdvanced)}
+                  style={{ alignItems: 'center', paddingVertical: 6 }}
                 >
-                  {isLoading ? (
-                    <ActivityIndicator color="#ffffff" size="small" />
-                  ) : (
-                    <Text style={styles.connectPrimaryBtnText}>🟠 Verify & Connect Strava</Text>
-                  )}
+                  <Text style={styles.advancedToggleText}>
+                    {showAdvanced ? '▲ Hide Token Input' : '▼ Advanced: Enter Custom API Token'}
+                  </Text>
                 </Pressable>
+
+                {showAdvanced && (
+                  <View style={styles.advancedBox}>
+                    <Text style={styles.stepTitle}>📌 Manual Token Setup:</Text>
+                    <Text style={styles.stepText}>1. Open your Strava API page:</Text>
+                    <Pressable
+                      onPress={() => Linking.openURL('https://www.strava.com/settings/api')}
+                      style={styles.linkButton}
+                    >
+                      <Text style={styles.linkButtonText}>🌐 Open strava.com/settings/api ↗</Text>
+                    </Pressable>
+                    <Text style={styles.stepText}>2. Copy your "Your Access Token" and paste below:</Text>
+
+                    <TextInput
+                      style={styles.textInput}
+                      placeholder="Paste your Strava Access Token here..."
+                      placeholderTextColor="#64748b"
+                      value={accessTokenInput}
+                      onChangeText={setAccessTokenInput}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+
+                    <Pressable
+                      onPress={handleSaveAndVerifyToken}
+                      disabled={isLoading}
+                      style={[styles.verifyTokenBtn, isLoading && { opacity: 0.6 }]}
+                    >
+                      {isLoading ? (
+                        <ActivityIndicator color="#ffffff" size="small" />
+                      ) : (
+                        <Text style={styles.verifyTokenBtnText}>Verify & Save Token</Text>
+                      )}
+                    </Pressable>
+                  </View>
+                )}
               </View>
             )}
 
@@ -427,11 +469,48 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginBottom: 14,
   },
-  stepBox: {
+  connectPrimaryBtn: {
+    backgroundColor: '#fc4c02',
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: 'center',
+    shadowColor: '#fc4c02',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  connectPrimaryBtnText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 14,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  dividerText: {
+    color: '#64748b',
+    fontSize: 11,
+    fontWeight: '700',
+    paddingHorizontal: 8,
+  },
+  advancedToggleText: {
+    color: '#94a3b8',
+    fontSize: 12,
+    textDecorationLine: 'underline',
+  },
+  advancedBox: {
+    marginTop: 10,
     backgroundColor: 'rgba(0, 0, 0, 0.35)',
     borderRadius: 12,
     padding: 12,
-    marginBottom: 14,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.08)',
   },
@@ -439,7 +518,7 @@ const styles = StyleSheet.create({
     color: '#fb923c',
     fontSize: 12,
     fontWeight: '700',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   stepText: {
     color: '#cbd5e1',
@@ -462,12 +541,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
-  inputLabel: {
-    color: '#cbd5e1',
-    fontSize: 12,
-    fontWeight: '600',
-    marginBottom: 6,
-  },
   textInput: {
     backgroundColor: '#1e293b',
     color: '#f8fafc',
@@ -476,18 +549,20 @@ const styles = StyleSheet.create({
     fontSize: 13,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
-    marginBottom: 12,
+    marginTop: 8,
+    marginBottom: 10,
   },
-  connectPrimaryBtn: {
-    backgroundColor: '#fc4c02',
-    paddingVertical: 12,
-    borderRadius: 12,
+  verifyTokenBtn: {
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    paddingVertical: 10,
+    borderRadius: 8,
     alignItems: 'center',
-    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
-  connectPrimaryBtnText: {
-    color: '#ffffff',
-    fontSize: 15,
+  verifyTokenBtnText: {
+    color: '#f8fafc',
+    fontSize: 13,
     fontWeight: '700',
   },
   securityBox: {
