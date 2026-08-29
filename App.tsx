@@ -2296,7 +2296,7 @@ function SettingsScreen(props: {
   onStravaAutoSyncToggle: (v: boolean) => void;
   onOpenStravaModal: () => void;
 }) {
-  const appVersion = '1.0.0';
+  const appVersion = '1.0.1';
   const subLabel = props.subTier === 'annual' ? '👑 Annual Premium'
     : props.subTier === 'monthly' ? '⭐ Monthly Premium'
     : '🆓 Free Tier';

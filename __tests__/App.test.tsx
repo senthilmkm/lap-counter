@@ -119,7 +119,7 @@ describe('<App /> — Running state', () => {
     
     // 1. Enable developer debug mode by tapping version 7 times in Settings tab
     fireEvent.press(screen.getByText('Settings'));
-    const versionRow = screen.getByText('1.0.0');
+    const versionRow = screen.getByText('1.0.1');
     for (let i = 0; i < 7; i++) {
       fireEvent.press(versionRow);
     }
@@ -238,7 +238,7 @@ describe('<App /> — mode toggle', () => {
     
     // 1. Enable developer debug mode by tapping version 7 times in Settings tab
     fireEvent.press(screen.getByText('Settings'));
-    const versionRow = screen.getByText('1.0.0');
+    const versionRow = screen.getByText('1.0.1');
     for (let i = 0; i < 7; i++) {
       fireEvent.press(versionRow);
     }

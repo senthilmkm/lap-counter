@@ -3,7 +3,7 @@
     "name": "Orbit",
     "slug": "lap-counter",
     "scheme": "orbitapp",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "icon": "./assets/icon.png",
@@ -27,7 +27,7 @@
           "com.senth.lapcounter.background-scan"
         ]
       },
-      "buildNumber": "7"
+      "buildNumber": "8"
     },
     "android": {
       "package": "com.senth.lapcounter",
