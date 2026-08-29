@@ -37,6 +37,7 @@ import {
   isStravaAutoSyncEnabled,
   setStravaAutoSyncEnabled,
   isStravaConnected,
+  isWorkoutSyncedToStrava,
   getStravaTokens,
   saveStravaTokens,
   disconnectStrava,
@@ -918,7 +919,14 @@ export default function App() {
                     >
                       <View style={styles.workoutItemHeader}>
                         <Text style={styles.workoutItemDate}>{new Date(item.startTime).toLocaleDateString()} {new Date(item.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
-                        <Text style={styles.workoutItemMode}>{item.mode === 'indoor' ? '🏠 Indoor' : '🌳 Outdoor'}</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          {isWorkoutSyncedToStrava(item.id) && (
+                            <View style={styles.stravaSyncedBadge}>
+                              <Text style={styles.stravaSyncedBadgeText}>🟠 Strava</Text>
+                            </View>
+                          )}
+                          <Text style={styles.workoutItemMode}>{item.mode === 'indoor' ? '🏠 Indoor' : '🌳 Outdoor'}</Text>
+                        </View>
                       </View>
                       <Text style={styles.workoutItemLaps}>{item.totalLaps} Laps Completed</Text>
                       <Text style={styles.workoutItemTime}>Duration: {formatDuration(Math.round((item.endTime - item.startTime) / 1000))}</Text>
@@ -1374,7 +1382,11 @@ export default function App() {
                       }}
                       style={[styles.exportItemBtn, { backgroundColor: '#fc4c02', marginTop: 8, width: '100%' }]}
                     >
-                      <Text style={styles.exportItemBtnText}>{isPremium ? '🟠 Upload to Strava' : '👑 Unlock Strava Cloud Sync'}</Text>
+                      <Text style={styles.exportItemBtnText}>
+                        {isWorkoutSyncedToStrava(selectedWorkout.id)
+                          ? '✓ Synced with Strava (Re-upload)'
+                          : (isPremium ? '🟠 Upload to Strava' : '👑 Unlock Strava Cloud Sync')}
+                      </Text>
                     </Pressable>
 
                     {isPremium ? (
@@ -3742,6 +3754,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 4,
+  },
+  stravaSyncedBadge: {
+    backgroundColor: 'rgba(252, 76, 2, 0.15)',
+    borderColor: '#fc4c02',
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  stravaSyncedBadgeText: {
+    color: '#fc4c02',
+    fontSize: 11,
+    fontWeight: '800',
   },
   ghostPickerRow: {
     flexDirection: 'row',

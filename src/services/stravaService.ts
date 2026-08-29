@@ -134,6 +134,39 @@ export function removeWorkoutFromPendingSync(workoutId: string): void {
   saveSettingSync(STRAVA_PENDING_QUEUE_KEY, JSON.stringify(updated));
 }
 
+const STRAVA_SYNCED_IDS_KEY = 'strava_synced_workout_ids';
+
+/**
+ * Retrieves the list of workout IDs successfully synced to Strava.
+ */
+export function getSyncedWorkoutIds(): string[] {
+  try {
+    const raw = getSettingSync(STRAVA_SYNCED_IDS_KEY, '[]');
+    return JSON.parse(raw);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Marks a workout ID as successfully synced to Strava.
+ */
+export function markWorkoutSyncedToStrava(workoutId: string): void {
+  const current = getSyncedWorkoutIds();
+  if (!current.includes(workoutId)) {
+    current.push(workoutId);
+    saveSettingSync(STRAVA_SYNCED_IDS_KEY, JSON.stringify(current));
+  }
+}
+
+/**
+ * Checks if a specific workout ID has been synced to Strava.
+ */
+export function isWorkoutSyncedToStrava(workoutId: string): boolean {
+  const current = getSyncedWorkoutIds();
+  return current.includes(workoutId);
+}
+
 /**
  * Proactively refreshes the Strava access token if it is expired or expiring within 5 minutes.
  */
@@ -275,6 +308,7 @@ export async function uploadWorkoutToStrava(
     if (response.ok) {
       const resData = await response.json();
       removeWorkoutFromPendingSync(workout.id);
+      markWorkoutSyncedToStrava(workout.id);
       return {
         success: true,
         activityId: resData.id_str || String(resData.id),

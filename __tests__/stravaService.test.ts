@@ -10,6 +10,9 @@ import {
   getPendingSyncWorkouts,
   removeWorkoutFromPendingSync,
   syncPendingWorkoutsToStrava,
+  markWorkoutSyncedToStrava,
+  isWorkoutSyncedToStrava,
+  getSyncedWorkoutIds,
 } from '../src/services/stravaService';
 import { DBWorkout } from '../src/services/database';
 
@@ -78,5 +81,12 @@ describe('Strava Service & Pro Subscription Gating', () => {
     // Remove from queue
     removeWorkoutFromPendingSync('workout_pending_999');
     expect(getPendingSyncWorkouts()).not.toContain('workout_pending_999');
+  });
+
+  it('tracks synced workout status accurately for history badges', () => {
+    expect(isWorkoutSyncedToStrava('workout_synced_100')).toBe(false);
+    markWorkoutSyncedToStrava('workout_synced_100');
+    expect(isWorkoutSyncedToStrava('workout_synced_100')).toBe(true);
+    expect(getSyncedWorkoutIds()).toContain('workout_synced_100');
   });
 });
