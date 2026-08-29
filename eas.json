@@ -13,6 +13,7 @@
       "channel": "development"
     },
     "preview": {
+      "autoIncrement": true,
       "distribution": "internal",
       "ios": {
         "simulator": false
