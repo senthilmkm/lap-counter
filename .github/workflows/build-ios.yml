@@ -6,7 +6,7 @@ on:
 jobs:
   build_and_submit:
     name: 🍎 iOS Production Build & App Store Submit
-    runs-on: macos-14 # macOS 14 runner with full Xcode 16.1 & iOS 18 SDK support
+    runs-on: macos-14 # Apple Silicon macOS runner with Xcode 16.1 & complete iOS 18 SDK
     timeout-minutes: 90
     env:
       EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
@@ -37,6 +37,13 @@ jobs:
 
       - name: 📦 Install Project Dependencies
         run: npm ci
+
+      - name: 🔧 Fix SwiftPM Compatibility for Expo Modules
+        run: |
+          if [ -f "node_modules/expo-modules-jsi/apple/Package.swift" ]; then
+            sed -i '' 's/swift-tools-version: 6.2/swift-tools-version: 6.0/g' node_modules/expo-modules-jsi/apple/Package.swift
+            echo "Successfully patched ExpoModulesJSI Package.swift to swift-tools-version: 6.0"
+          fi
 
       - name: 🚀 Install EAS CLI
         run: npm install -g eas-cli@latest
