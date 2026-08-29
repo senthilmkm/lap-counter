@@ -40,12 +40,26 @@ jest.mock('expo-speech', () => ({
   stop: jest.fn(),
 }));
 
-// Mock expo-sqlite
+// Mock expo-sqlite with in-memory key-value store for settings table
+const mockSettingsStore: Record<string, string> = {};
 jest.mock('expo-sqlite', () => ({
   openDatabaseSync: jest.fn(() => ({
     execSync: jest.fn(),
-    runSync: jest.fn(() => ({ changes: 1, lastInsertRowId: 1 })),
-    getFirstSync: jest.fn(() => null),
+    runSync: jest.fn((sql: string, params: any[] = []) => {
+      if (sql.includes('INSERT OR REPLACE INTO settings') && params.length >= 2) {
+        mockSettingsStore[params[0]] = String(params[1]);
+      } else if (sql.includes('DELETE FROM settings') || (sql.includes('WHERE key =') && params.length >= 1 && params[1] === '')) {
+        delete mockSettingsStore[params[0]];
+      }
+      return { changes: 1, lastInsertRowId: 1 };
+    }),
+    getFirstSync: jest.fn((sql: string, params: any[] = []) => {
+      if (sql.includes('SELECT value FROM settings WHERE key =') && params.length >= 1) {
+        const val = mockSettingsStore[params[0]];
+        return val !== undefined ? { value: val } : null;
+      }
+      return null;
+    }),
     getAllSync: jest.fn(() => []),
   })),
 }));

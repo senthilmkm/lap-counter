@@ -1,4 +1,12 @@
-import { uploadWorkoutToStrava, setStravaAutoSyncEnabled } from '../src/services/stravaService';
+import {
+  uploadWorkoutToStrava,
+  setStravaAutoSyncEnabled,
+  saveStravaTokens,
+  getStravaTokens,
+  ensureFreshStravaToken,
+  disconnectStrava,
+  isStravaConnected,
+} from '../src/services/stravaService';
 import { DBWorkout } from '../src/services/database';
 
 describe('Strava Service & Pro Subscription Gating', () => {
@@ -34,5 +42,27 @@ describe('Strava Service & Pro Subscription Gating', () => {
   it('allows enabling auto-sync setting for premium tier', () => {
     const allowed = setStravaAutoSyncEnabled(true, true);
     expect(allowed).toBe(true);
+  });
+
+  it('correctly stores, identifies valid tokens, and ensures token freshness', async () => {
+    const futureExpiry = Math.floor(Date.now() / 1000) + 7200; // 2 hours in future
+    saveStravaTokens({
+      accessToken: 'test_access_token_123',
+      refreshToken: 'test_refresh_token_456',
+      expiresAt: futureExpiry,
+      athleteId: 'athlete_789',
+    });
+
+    expect(isStravaConnected()).toBe(true);
+    const tokens = getStravaTokens();
+    expect(tokens?.accessToken).toBe('test_access_token_123');
+
+    // Fresh token returned directly without needing network refresh
+    const fresh = await ensureFreshStravaToken();
+    expect(fresh).toBe('test_access_token_123');
+
+    // Disconnect cleans up
+    disconnectStrava();
+    expect(isStravaConnected()).toBe(false);
   });
 });
