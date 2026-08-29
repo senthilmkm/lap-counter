@@ -18,6 +18,7 @@ import {
   ScrollView,
   ActivityIndicator,
 } from 'react-native';
+import * as WebBrowser from 'expo-web-browser';
 import {
   isStravaConnected,
   getStravaTokens,
@@ -29,6 +30,8 @@ import {
   getStravaAuthUrl,
   exchangeStravaAuthCode,
 } from '../services/stravaService';
+
+WebBrowser.maybeCompleteAuthSession();
 
 interface StravaConnectModalProps {
   visible: boolean;
@@ -121,12 +124,44 @@ export default function StravaConnectModal({
     const authUrl = getStravaAuthUrl();
     
     try {
-      await Linking.openURL(authUrl);
-    } catch {
-      Alert.alert(
-        'Connect with Strava',
-        'Could not open Strava login directly. Please verify you have an internet connection or enter your token below.'
+      setIsLoading(true);
+      const result = await WebBrowser.openAuthSessionAsync(
+        authUrl,
+        'orbitapp://strava-callback'
       );
+
+      if (result.type === 'success' && result.url) {
+        const codeMatch = result.url.match(/[?&]code=([^&#]+)/);
+        const code = codeMatch ? decodeURIComponent(codeMatch[1]) : null;
+        if (code) {
+          const res = await exchangeStravaAuthCode(code, isPremium);
+          if (res.success) {
+            setConnected(true);
+            setAthleteName(res.athleteName || 'Strava Athlete');
+            setTokens(getStravaTokens());
+            onConnectionChange(true);
+            Alert.alert(
+              'Strava Connected! 🚴‍♂️',
+              `Successfully authorized with Strava!\nAthlete: ${res.athleteName}\n\nCompleted workouts will now automatically sync to your Strava feed!`
+            );
+            setIsLoading(false);
+            return;
+          } else {
+            Alert.alert('Authorization Failed', res.error || 'Failed to exchange Strava token.');
+          }
+        }
+      }
+      setIsLoading(false);
+    } catch {
+      setIsLoading(false);
+      try {
+        await Linking.openURL(authUrl);
+      } catch {
+        Alert.alert(
+          'Connect with Strava',
+          'Could not open Strava login directly. Please verify you have an internet connection or enter your token below.'
+        );
+      }
     }
   };
 
