@@ -220,5 +220,64 @@ function patchSwiftFiles(dir) {
   }
 }
 
+// 5. C++ header patcher for Clang and Swift C++ interop compatibility
+function patchCxxHeaders(dir) {
+  if (!fs.existsSync(dir)) return;
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      patchCxxHeaders(fullPath);
+    } else if (entry.isFile() && entry.name.endsWith('.h')) {
+      let content = fs.readFileSync(fullPath, 'utf8');
+      let modified = false;
+
+      // Fix 1: SWIFT_RETURNS_RETAINED cannot be placed on constructors in C++
+      if (content.includes('SWIFT_RETURNS_RETAINED RuntimeScheduler')) {
+        content = content.replace(/SWIFT_RETURNS_RETAINED\s+RuntimeScheduler/g, 'RuntimeScheduler');
+        modified = true;
+      }
+
+      // Fix 2: Add fallback macro definitions for Swift bridging annotations
+      const fallbackDefs = `
+#ifndef SWIFT_RETURNS_RETAINED
+#define SWIFT_RETURNS_RETAINED
+#endif
+#ifndef SWIFT_RETURNS_INDEPENDENT_VALUE
+#define SWIFT_RETURNS_INDEPENDENT_VALUE
+#endif
+#ifndef SWIFT_SHARED_REFERENCE
+#define SWIFT_SHARED_REFERENCE(retain, release)
+#endif
+#ifndef SWIFT_IMMORTAL_REFERENCE
+#define SWIFT_IMMORTAL_REFERENCE
+#endif
+#ifndef SWIFT_NONCOPYABLE
+#define SWIFT_NONCOPYABLE
+#endif
+#ifndef SWIFT_UNCHECKED_SENDABLE
+#define SWIFT_UNCHECKED_SENDABLE
+#endif
+#ifndef SWIFT_COMPUTED_PROPERTY
+#define SWIFT_COMPUTED_PROPERTY
+#endif
+#ifndef SWIFT_NAME
+#define SWIFT_NAME(name)
+#endif
+`;
+      if (!content.includes('#ifndef SWIFT_RETURNS_RETAINED')) {
+        content = content.replace('#include <swift/bridging>', `#include <swift/bridging>\n${fallbackDefs}`);
+        modified = true;
+      }
+
+      if (modified) {
+        fs.writeFileSync(fullPath, content, 'utf8');
+        console.log(`✅ Patched C++ header: ${entry.name}`);
+      }
+    }
+  }
+}
+
 const sourcesDir = path.join(__dirname, '..', 'node_modules', 'expo-modules-jsi', 'apple', 'Sources');
 patchSwiftFiles(sourcesDir);
+patchCxxHeaders(sourcesDir);
