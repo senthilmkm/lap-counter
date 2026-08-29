@@ -42,6 +42,7 @@ import {
   saveStravaTokens,
   disconnectStrava,
   syncPendingWorkoutsToStrava,
+  exchangeStravaAuthCode,
 } from './src/services/stravaService';
 import { SocialCardData, shareWorkoutStory } from './src/services/shareService';
 
@@ -454,6 +455,31 @@ export default function App() {
     });
     return () => sub.remove();
   }, [isPremium, stravaSyncActive]);
+
+  // Top-level OAuth deep-link listener for Strava authorization returns
+  useEffect(() => {
+    const handleDeepLink = async (event: { url: string }) => {
+      if (!event.url || !event.url.includes('strava-callback')) return;
+      const codeMatch = event.url.match(/[?&]code=([^&#]+)/);
+      const code = codeMatch ? decodeURIComponent(codeMatch[1]) : null;
+      if (code) {
+        const res = await exchangeStravaAuthCode(code, isPremium);
+        if (res.success) {
+          setStravaSyncActive(true);
+          Alert.alert(
+            'Strava Connected! 🚴‍♂️',
+            `Successfully authorized with Strava!\nAthlete: ${res.athleteName}\n\nWorkouts will now automatically sync to your Strava feed!`
+          );
+        }
+      }
+    };
+
+    const sub = Linking.addEventListener('url', handleDeepLink);
+    void Linking.getInitialURL().then((url) => {
+      if (url) handleDeepLink({ url });
+    });
+    return () => sub.remove();
+  }, [isPremium]);
 
   // Save workout to SQLite database when workout completes & evaluate personal records
   useEffect(() => {

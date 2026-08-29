@@ -69,8 +69,8 @@ export default function StravaConnectModal({
         if (!event.url || !event.url.includes('strava-callback')) return;
         
         try {
-          const urlObj = new URL(event.url.replace('orbitapp://', 'https://orbitapp.com/'));
-          const code = urlObj.searchParams.get('code');
+          const codeMatch = event.url.match(/[?&]code=([^&#]+)/);
+          const code = codeMatch ? decodeURIComponent(codeMatch[1]) : null;
           if (code) {
             setIsLoading(true);
             const res = await exchangeStravaAuthCode(code, isPremium);
