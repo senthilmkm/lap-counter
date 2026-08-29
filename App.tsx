@@ -2275,7 +2275,7 @@ function SettingsScreen(props: {
               <Pressable
                 onPress={() => Alert.alert(
                   'Strava Cloud Sync & Offline Guide',
-                  '• Zero Token Entry: You never need to enter manual API keys. Orbit authorizes securely via standard OAuth.\n\n• Auto-Refresh: Expired tokens are refreshed automatically in the background.\n\n• Offline Resiliency: If you finish a workout without cell service or Wi-Fi, your workout is 100% saved locally in SQLite. You can upload it anytime with 1 tap from History!'
+                  '• Zero Token Entry: You never enter manual API keys. Orbit authorizes securely via standard OAuth.\n\n• Secure Local Tokens: Orbit exchanges the authorization code directly with Strava and stores tokens strictly in your on-device local SQLite database.\n\n• Auto-Refresh: Expired tokens are refreshed automatically in the background.\n\n• 100% Offline Resiliency: If you finish a workout without cell service or Wi-Fi, your workout is completely preserved in SQLite. You can upload it anytime with 1 tap from History!'
                 )}
                 style={{ padding: 4 }}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}

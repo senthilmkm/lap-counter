@@ -298,10 +298,16 @@
         Orbit utilizes RevenueCat and the native Apple App Store to coordinate subscription billing for Orbit Pro. Purchases are secured using Apple's in-app purchasing mechanics. We do not gather or store payment credentials, credit card details, billing statements, or real names.
       </p>
 
-      <h2>5. Sharing Workouts</h2>
+      <h2>5. Strava Integration & Cloud Sync</h2>
       <p>
-        If you manually select GPX/CSV export or text sharing to publish files to Strava, Garmin, or third-party networks, you are initiating that transfer. Orbit holds no liability for how those external platforms manage your shared data.
+        Orbit offers optional integration with Strava for automated activity syncing:
       </p>
+      <ul>
+        <li><strong>OAuth 2.0 Authorization:</strong> When you connect your Strava account, authentication occurs securely via Strava's official OAuth 2.0 flow. You never enter or share your Strava password with Orbit.</li>
+        <li><strong>Local Token Storage:</strong> Orbit exchanges the authorization code directly with Strava's servers for access and refresh tokens. These tokens are stored strictly within your device's private on-device SQLite database. We do not store or mirror your tokens on external third-party servers.</li>
+        <li><strong>Data Transmission:</strong> When you upload a session or enable Auto-Sync, workout telemetry (duration, lap counts, cadence, steps, and GPS route GPX data) is transmitted directly from your phone to Strava's API (API v3) over encrypted HTTPS.</li>
+        <li><strong>User Control:</strong> You can disconnect your Strava integration anytime in the app Settings or revoke Orbit's permissions in your Strava account settings. Disconnecting immediately removes all stored OAuth tokens from your device.</li>
+      </ul>
 
       <h2>6. Contact Us</h2>
       <p>
