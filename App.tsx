@@ -45,6 +45,7 @@ import {
   exchangeStravaAuthCode,
 } from './src/services/stravaService';
 import { SocialCardData, shareWorkoutStory } from './src/services/shareService';
+import { FEATURE_FLAGS } from './src/config/features';
 
 const KEEP_AWAKE_TAG = 'lap-counter-session';
 const TICK_INTERVAL_MS = 1000;
@@ -445,11 +446,11 @@ export default function App() {
 
   // Automatically drain offline Strava sync queue on startup and whenever app returns to foreground
   useEffect(() => {
-    if (isPremium && stravaSyncActive) {
+    if (FEATURE_FLAGS.ENABLE_STRAVA_INTEGRATION && isPremium && stravaSyncActive) {
       syncPendingWorkoutsToStrava(isPremium);
     }
     const sub = AppState.addEventListener('change', (nextAppState) => {
-      if (nextAppState === 'active' && isPremium && stravaSyncActive) {
+      if (FEATURE_FLAGS.ENABLE_STRAVA_INTEGRATION && nextAppState === 'active' && isPremium && stravaSyncActive) {
         syncPendingWorkoutsToStrava(isPremium);
       }
     });
@@ -458,6 +459,7 @@ export default function App() {
 
   // Top-level OAuth deep-link listener for Strava authorization returns
   useEffect(() => {
+    if (!FEATURE_FLAGS.ENABLE_STRAVA_INTEGRATION) return;
     const handleDeepLink = async (event: { url: string }) => {
       if (!event.url || !event.url.includes('strava-callback')) return;
       const codeMatch = event.url.match(/[?&]code=([^&#]+)/);
@@ -555,8 +557,8 @@ export default function App() {
 
         saveWorkout(item, gpsPath).then(async () => {
           reloadHistory();
-          // Auto-Sync to Strava if enabled and Pro active
-          if (isPremium && stravaSyncActive) {
+          // Auto-Sync to Strava if enabled, feature active, and Pro active
+          if (FEATURE_FLAGS.ENABLE_STRAVA_INTEGRATION && isPremium && stravaSyncActive) {
             const stravaRes = await uploadWorkoutToStrava(item, gpsPath, isPremium);
             if (stravaRes.success) {
               Alert.alert('Strava Auto-Sync', 'Workout successfully synced to your Strava activity feed! 🚴‍♂️');
@@ -946,7 +948,7 @@ export default function App() {
                       <View style={styles.workoutItemHeader}>
                         <Text style={styles.workoutItemDate}>{new Date(item.startTime).toLocaleDateString()} {new Date(item.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</Text>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                          {isWorkoutSyncedToStrava(item.id) && (
+                          {FEATURE_FLAGS.ENABLE_STRAVA_INTEGRATION && isWorkoutSyncedToStrava(item.id) && (
                             <View style={styles.stravaSyncedBadge}>
                               <Text style={styles.stravaSyncedBadgeText}>🟠 Strava</Text>
                             </View>
@@ -1388,32 +1390,34 @@ export default function App() {
                     </Pressable>
 
                     {/* Strava 1-Tap Sync Button (Pro Gated) */}
-                    <Pressable
-                      onPress={async () => {
-                        if (!isPremium) {
-                          setSelectedWorkout(null);
-                          setShowPaywall(true);
-                          return;
-                        }
-                        const rawPath = getWorkoutPath(selectedWorkout.id);
-                        const res = await uploadWorkoutToStrava(selectedWorkout, rawPath, isPremium);
-                        if (res.success) {
-                          Alert.alert('Strava Sync', 'Workout successfully synced to your Strava activity feed! 🚴‍♂️');
-                        } else if (res.paywallRequired) {
-                          setSelectedWorkout(null);
-                          setShowPaywall(true);
-                        } else {
-                          Alert.alert('Strava Sync', res.error || 'Failed to upload workout to Strava.');
-                        }
-                      }}
-                      style={[styles.exportItemBtn, { backgroundColor: '#fc4c02', marginTop: 8, width: '100%' }]}
-                    >
-                      <Text style={styles.exportItemBtnText}>
-                        {isWorkoutSyncedToStrava(selectedWorkout.id)
-                          ? '✓ Synced with Strava (Re-upload)'
-                          : (isPremium ? '🟠 Upload to Strava' : '👑 Unlock Strava Cloud Sync')}
-                      </Text>
-                    </Pressable>
+                    {FEATURE_FLAGS.ENABLE_STRAVA_INTEGRATION && (
+                      <Pressable
+                        onPress={async () => {
+                          if (!isPremium) {
+                            setSelectedWorkout(null);
+                            setShowPaywall(true);
+                            return;
+                          }
+                          const rawPath = getWorkoutPath(selectedWorkout.id);
+                          const res = await uploadWorkoutToStrava(selectedWorkout, rawPath, isPremium);
+                          if (res.success) {
+                            Alert.alert('Strava Sync', 'Workout successfully synced to your Strava activity feed! 🚴‍♂️');
+                          } else if (res.paywallRequired) {
+                            setSelectedWorkout(null);
+                            setShowPaywall(true);
+                          } else {
+                            Alert.alert('Strava Sync', res.error || 'Failed to upload workout to Strava.');
+                          }
+                        }}
+                        style={[styles.exportItemBtn, { backgroundColor: '#fc4c02', marginTop: 8, width: '100%' }]}
+                      >
+                        <Text style={styles.exportItemBtnText}>
+                          {isWorkoutSyncedToStrava(selectedWorkout.id)
+                            ? '✓ Synced with Strava (Re-upload)'
+                            : (isPremium ? '🟠 Upload to Strava' : '👑 Unlock Strava Cloud Sync')}
+                        </Text>
+                      </Pressable>
+                    )}
 
                     {isPremium ? (
                       <View style={styles.modalActionExportRow}>
@@ -2343,54 +2347,56 @@ function SettingsScreen(props: {
       </View>
 
       {/* CONNECTED APPS & STRAVA */}
-      <View style={styles.card}>
-        <Text style={styles.settingsSectionTitle}>🔗 Connected Apps & Strava</Text>
-        <View style={styles.toggleRow}>
-          <View style={{ flex: 1, marginRight: 8 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Text style={styles.toggleLabel}>Strava Auto-Sync</Text>
-              <View style={styles.proPillBadge}>
-                <Text style={styles.proPillText}>PRO</Text>
+      {FEATURE_FLAGS.ENABLE_STRAVA_INTEGRATION && (
+        <View style={styles.card}>
+          <Text style={styles.settingsSectionTitle}>🔗 Connected Apps & Strava</Text>
+          <View style={styles.toggleRow}>
+            <View style={{ flex: 1, marginRight: 8 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={styles.toggleLabel}>Strava Auto-Sync</Text>
+                <View style={styles.proPillBadge}>
+                  <Text style={styles.proPillText}>PRO</Text>
+                </View>
+                <Pressable
+                  onPress={() => Alert.alert(
+                    'Strava Cloud Sync & Offline Guide',
+                    '• Zero Token Entry: You never enter manual API keys. Orbit authorizes securely via standard OAuth.\n\n• Secure Local Tokens: Orbit exchanges the authorization code directly with Strava and stores tokens strictly in your on-device local SQLite database.\n\n• Auto-Refresh: Expired tokens are refreshed automatically in the background.\n\n• 100% Offline Resiliency: If you finish a workout without cell service or Wi-Fi, your workout is completely preserved in SQLite. You can upload it anytime with 1 tap from History!'
+                  )}
+                  style={{ padding: 4 }}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Text style={{ fontSize: 16, color: '#fc4c02' }}>ℹ️</Text>
+                </Pressable>
               </View>
-              <Pressable
-                onPress={() => Alert.alert(
-                  'Strava Cloud Sync & Offline Guide',
-                  '• Zero Token Entry: You never enter manual API keys. Orbit authorizes securely via standard OAuth.\n\n• Secure Local Tokens: Orbit exchanges the authorization code directly with Strava and stores tokens strictly in your on-device local SQLite database.\n\n• Auto-Refresh: Expired tokens are refreshed automatically in the background.\n\n• 100% Offline Resiliency: If you finish a workout without cell service or Wi-Fi, your workout is completely preserved in SQLite. You can upload it anytime with 1 tap from History!'
-                )}
-                style={{ padding: 4 }}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <Text style={{ fontSize: 16, color: '#fc4c02' }}>ℹ️</Text>
-              </Pressable>
+              <Text style={styles.settingsDescription}>
+                Auto-upload completed sessions and splits to Strava.
+              </Text>
             </View>
-            <Text style={styles.settingsDescription}>
-              Auto-upload completed sessions and splits to Strava.
-            </Text>
+            <Switch
+              value={props.stravaAutoSyncActive}
+              onValueChange={props.onStravaAutoSyncToggle}
+              trackColor={{ true: '#fc4c02', false: '#374151' }}
+            />
           </View>
-          <Switch
-            value={props.stravaAutoSyncActive}
-            onValueChange={props.onStravaAutoSyncToggle}
-            trackColor={{ true: '#fc4c02', false: '#374151' }}
-          />
+          <Pressable
+            onPress={props.onOpenStravaModal}
+            style={{
+              marginTop: 12,
+              backgroundColor: isStravaConnected() ? 'rgba(16, 185, 129, 0.15)' : 'rgba(252, 76, 2, 0.15)',
+              borderWidth: 1,
+              borderColor: isStravaConnected() ? '#10b981' : '#fc4c02',
+              paddingVertical: 10,
+              paddingHorizontal: 12,
+              borderRadius: 10,
+              alignItems: 'center',
+            }}
+          >
+            <Text style={{ color: isStravaConnected() ? '#6ee7b7' : '#fb923c', fontWeight: '700', fontSize: 13 }}>
+              {isStravaConnected() ? '✓ Strava Account Connected (Manage / Disconnect)' : '🟠 Connect Strava Account'}
+            </Text>
+          </Pressable>
         </View>
-        <Pressable
-          onPress={props.onOpenStravaModal}
-          style={{
-            marginTop: 12,
-            backgroundColor: isStravaConnected() ? 'rgba(16, 185, 129, 0.15)' : 'rgba(252, 76, 2, 0.15)',
-            borderWidth: 1,
-            borderColor: isStravaConnected() ? '#10b981' : '#fc4c02',
-            paddingVertical: 10,
-            paddingHorizontal: 12,
-            borderRadius: 10,
-            alignItems: 'center',
-          }}
-        >
-          <Text style={{ color: isStravaConnected() ? '#6ee7b7' : '#fb923c', fontWeight: '700', fontSize: 13 }}>
-            {isStravaConnected() ? '✓ Strava Account Connected (Manage / Disconnect)' : '🟠 Connect Strava Account'}
-          </Text>
-        </Pressable>
-      </View>
+      )}
 
       {/* WEATHER UNIT */}
       <View style={styles.card}>
