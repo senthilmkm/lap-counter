@@ -11,20 +11,22 @@ jobs:
     env:
       EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
       EXPO_NO_DOCTOR: "1"
+      DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
 
     steps:
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
 
-      - name: 🍏 Select Xcode 16.2
+      - name: 🍏 Select Xcode 16.2 & Initialize Simulator Runtimes
         run: |
           sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
           xcodebuild -version
+          xcrun simctl list devices available || true
 
-      - name: 🟢 Setup Node.js 20
+      - name: 🟢 Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: 📦 Install Project Dependencies

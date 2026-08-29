@@ -59,7 +59,6 @@
       ]
     },
     "plugins": [
-      "expo-dev-client",
       "expo-sensors",
       "expo-background-fetch",
       "expo-task-manager",
