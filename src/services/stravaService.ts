@@ -46,7 +46,7 @@ export const DEFAULT_STRAVA_CLIENT_SECRET = '01d7ce81ba6990f580a71c7efc4c43c0fa2
  */
 export function getStravaAuthUrl(): string {
   const clientId = getSettingSync(STRAVA_CLIENT_ID_KEY, DEFAULT_STRAVA_CLIENT_ID);
-  return `https://www.strava.com/oauth/mobile/authorize?client_id=${clientId}&response_type=code&redirect_uri=orbitapp://strava-callback&approval_prompt=auto&scope=activity:write,activity:read_all,read`;
+  return `https://www.strava.com/oauth/authorize?client_id=${clientId}&response_type=code&redirect_uri=http://localhost/exchange_token&approval_prompt=auto&scope=read,activity:write,activity:read_all`;
 }
 
 /**
