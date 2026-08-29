@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-// 1. Completely rewrite ExpoModulesJSI Package.swift with 100% valid Swift 6.0 manifest
+// 1. Completely rewrite ExpoModulesJSI Package.swift with 100% valid Swift 5/6 SPM manifest
 const cleanExpoModulesJSIPackageSwift = `// swift-tools-version: 6.0
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
@@ -75,13 +75,7 @@ let package = Package(
       ],
       swiftSettings: [
         .interoperabilityMode(.Cxx),
-        .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
-        .enableUpcomingFeature("InferIsolatedConformances"),
-        .enableExperimentalFeature("NonescapableTypes"),
         .unsafeFlags([
-          "-enable-library-evolution",
-          "-emit-module-interface",
-          "-no-verify-emitted-module-interface",
           "-Xfrontend",
           "-clang-header-expose-decls=has-expose-attr",
           "-Xcc", "-fmodule-map-file=\\(generatedModuleMap)",
@@ -112,7 +106,7 @@ let package = Package(
       dependencies: testFrameworks.dependencies
     )
   ] + testFrameworks.binaryTargets,
-  swiftLanguageModes: [.v6],
+  swiftLanguageModes: [.v5],
   cxxLanguageStandard: .cxx20
 )
 
@@ -149,7 +143,7 @@ func resolveTestFrameworks() -> (binaryTargets: [Target], dependencies: [Target.
 const packageSwiftPath = path.join(__dirname, '..', 'node_modules', 'expo-modules-jsi', 'apple', 'Package.swift');
 if (fs.existsSync(packageSwiftPath)) {
   fs.writeFileSync(packageSwiftPath, cleanExpoModulesJSIPackageSwift, 'utf8');
-  console.log('✅ Rewrote ExpoModulesJSI Package.swift with pristine Swift 6.0 manifest');
+  console.log('✅ Rewrote ExpoModulesJSI Package.swift with pristine Swift 5/6 manifest');
 }
 
 // 2. Patch any other Package.swift files in node_modules
@@ -175,7 +169,7 @@ if (fs.existsSync(buildXcframeworkPath)) {
   }
 }
 
-// 4. Recursive Swift source patcher for Swift 6.0 compiler compatibility
+// 4. Recursive Swift source patcher for Swift 5 / 6 compiler compatibility
 function patchSwiftFiles(dir) {
   if (!fs.existsSync(dir)) return;
   const entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -193,19 +187,54 @@ function patchSwiftFiles(dir) {
         modified = true;
       }
 
-      // Fix 2: Swift 6.0 Task has no 'name:' argument
-      if (content.includes('Task(name: name, priority: .high, operation: operation)')) {
-        content = content.replace('Task(name: name, priority: .high, operation: operation)', 'Task(priority: .high, operation: operation)');
-        modified = true;
+      // Fix 2: Add nonisolated(unsafe) to weak stored properties for Sendable classes
+      if (entry.name === 'HostFunctionContext.swift' || entry.name === 'HostObjectContext.swift') {
+        if (content.includes(': Sendable {')) {
+          content = content.replace(/: Sendable \{/g, ': @unchecked Sendable {');
+          modified = true;
+        }
       }
 
-      // Fix 3: C++ vector push_back argument label
+      if (entry.name === 'JavaScriptPropNameID.swift') {
+        if (content.includes('private weak var runtime: JavaScriptRuntime?')) {
+          content = content.replace('private weak var runtime: JavaScriptRuntime?', 'nonisolated(unsafe) private weak var runtime: JavaScriptRuntime?');
+          modified = true;
+        }
+      }
+
+      if (entry.name === 'JavaScriptError.swift') {
+        if (content.includes('private weak var runtime: JavaScriptRuntime?')) {
+          content = content.replace('private weak var runtime: JavaScriptRuntime?', 'nonisolated(unsafe) private weak var runtime: JavaScriptRuntime?');
+          modified = true;
+        }
+      }
+
+      if (entry.name === 'JavaScriptValue.swift') {
+        if (content.includes('internal weak var runtime: JavaScriptRuntime?')) {
+          content = content.replace('internal weak var runtime: JavaScriptRuntime?', 'nonisolated(unsafe) internal weak var runtime: JavaScriptRuntime?');
+          modified = true;
+        }
+      }
+
+      // Fix 3: Task+immediate polyfill without non-existent Task.immediate
+      if (entry.name === 'Task+immediate.swift') {
+        if (content.includes('Task.immediate(')) {
+          content = content.replace(/if #available[\s\S]*?return Task\(priority: \.high, operation: operation\)[\s\S]*?\}/g, 'return Task(priority: priority ?? .high, operation: operation)');
+          modified = true;
+        }
+        if (content.includes('sending @escaping @isolated(any)')) {
+          content = content.replace('sending @escaping @isolated(any)', '@escaping');
+          modified = true;
+        }
+      }
+
+      // Fix 4: C++ vector push_back argument label
       if (content.includes('vector.push_back(consuming: propNameId)')) {
         content = content.replace('vector.push_back(consuming: propNameId)', 'vector.push_back(propNameId)');
         modified = true;
       }
 
-      // Fix 4: Trailing commas before parameter list closing parenthesis
+      // Fix 5: Trailing commas before parameter list closing parenthesis
       const trailingCommaRegex = /,\s*\)\s*(async|throws|->|\{)/g;
       if (trailingCommaRegex.test(content)) {
         content = content.replace(trailingCommaRegex, ') $1');
@@ -232,14 +261,33 @@ function patchCxxHeaders(dir) {
       let content = fs.readFileSync(fullPath, 'utf8');
       let modified = false;
 
-      // Fix 1: SWIFT_RETURNS_RETAINED cannot be placed on constructors in C++
-      if (content.includes('SWIFT_RETURNS_RETAINED RuntimeScheduler')) {
-        content = content.replace(/SWIFT_RETURNS_RETAINED\s+RuntimeScheduler/g, 'RuntimeScheduler');
-        modified = true;
-      }
-
-      // Fix 2: Add fallback macro definitions for Swift bridging annotations
       const fallbackDefs = `
+#if __has_attribute(swift_attr)
+#ifndef SWIFT_RETURNS_RETAINED
+#define SWIFT_RETURNS_RETAINED __attribute__((swift_attr("returns_retained")))
+#endif
+#ifndef SWIFT_RETURNS_INDEPENDENT_VALUE
+#define SWIFT_RETURNS_INDEPENDENT_VALUE __attribute__((swift_attr("returns_independent_value")))
+#endif
+#ifndef SWIFT_SHARED_REFERENCE
+#define SWIFT_SHARED_REFERENCE(retain, release) __attribute__((swift_attr("retain:" #retain))) __attribute__((swift_attr("release:" #release)))
+#endif
+#ifndef SWIFT_IMMORTAL_REFERENCE
+#define SWIFT_IMMORTAL_REFERENCE __attribute__((swift_attr("immortal")))
+#endif
+#ifndef SWIFT_NONCOPYABLE
+#define SWIFT_NONCOPYABLE __attribute__((swift_attr("~Copyable")))
+#endif
+#ifndef SWIFT_UNCHECKED_SENDABLE
+#define SWIFT_UNCHECKED_SENDABLE __attribute__((swift_attr("@unchecked Sendable")))
+#endif
+#ifndef SWIFT_COMPUTED_PROPERTY
+#define SWIFT_COMPUTED_PROPERTY __attribute__((swift_attr("computed_property")))
+#endif
+#ifndef SWIFT_NAME
+#define SWIFT_NAME(name) __attribute__((swift_attr("getter:" #name)))
+#endif
+#else
 #ifndef SWIFT_RETURNS_RETAINED
 #define SWIFT_RETURNS_RETAINED
 #endif
@@ -264,8 +312,22 @@ function patchCxxHeaders(dir) {
 #ifndef SWIFT_NAME
 #define SWIFT_NAME(name)
 #endif
+#endif
 `;
-      if (!content.includes('#ifndef SWIFT_RETURNS_RETAINED')) {
+
+      if (entry.name === 'RuntimeScheduler.h') {
+        if (!content.includes('SWIFT_RETURNS_RETAINED RuntimeScheduler(')) {
+          content = content.replace(/(\s+)RuntimeScheduler\(void \*scheduler/g, '$1SWIFT_RETURNS_RETAINED RuntimeScheduler(void *scheduler');
+          content = content.replace(/(\s+)RuntimeScheduler\(\)\s*\{\}/g, '$1SWIFT_RETURNS_RETAINED RuntimeScheduler() {}');
+          modified = true;
+        }
+      }
+
+      // Inject robust macro fallback definitions
+      if (content.includes('#include <swift/bridging>')) {
+        // Strip any previous naive fallback blocks
+        content = content.replace(/\n#ifndef SWIFT_RETURNS_RETAINED[\s\S]*?#endif\n#endif/g, '');
+        content = content.replace(/\n#ifndef SWIFT_RETURNS_RETAINED[\s\S]*?#endif\n/g, '\n');
         content = content.replace('#include <swift/bridging>', `#include <swift/bridging>\n${fallbackDefs}`);
         modified = true;
       }
