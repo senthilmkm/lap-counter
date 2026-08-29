@@ -169,7 +169,7 @@ if (fs.existsSync(buildXcframeworkPath)) {
   }
 }
 
-// 4. Recursive Swift source patcher for Swift 5 / 6 compiler compatibility
+// 4. Swift source patcher
 function patchSwiftFiles(dir) {
   if (!fs.existsSync(dir)) return;
   const entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -181,13 +181,13 @@ function patchSwiftFiles(dir) {
       let content = fs.readFileSync(fullPath, 'utf8');
       let modified = false;
 
-      // Fix 1: Swift 6.0 requires weak references to be 'var', not 'let'
+      // Fix weak let
       if (content.includes('weak let')) {
         content = content.replace(/\bweak\s+let\b/g, 'weak var');
         modified = true;
       }
 
-      // Fix 2: Add nonisolated(unsafe) to weak stored properties for Sendable classes
+      // Fix Sendable mutable weak references
       if (entry.name === 'HostFunctionContext.swift' || entry.name === 'HostObjectContext.swift') {
         if (content.includes(': Sendable {')) {
           content = content.replace(/: Sendable \{/g, ': @unchecked Sendable {');
@@ -216,7 +216,7 @@ function patchSwiftFiles(dir) {
         }
       }
 
-      // Fix 3: Task+immediate polyfill without non-existent Task.immediate
+      // Fix Task+immediate
       if (entry.name === 'Task+immediate.swift') {
         if (content.includes('Task.immediate(')) {
           content = content.replace(/if #available[\s\S]*?return Task\(priority: \.high, operation: operation\)[\s\S]*?\}/g, 'return Task(priority: priority ?? .high, operation: operation)');
@@ -228,16 +228,9 @@ function patchSwiftFiles(dir) {
         }
       }
 
-      // Fix 4: C++ vector push_back argument label
+      // Fix push_back
       if (content.includes('vector.push_back(consuming: propNameId)')) {
         content = content.replace('vector.push_back(consuming: propNameId)', 'vector.push_back(propNameId)');
-        modified = true;
-      }
-
-      // Fix 5: Trailing commas before parameter list closing parenthesis
-      const trailingCommaRegex = /,\s*\)\s*(async|throws|->|\{)/g;
-      if (trailingCommaRegex.test(content)) {
-        content = content.replace(trailingCommaRegex, ') $1');
         modified = true;
       }
 
@@ -249,19 +242,16 @@ function patchSwiftFiles(dir) {
   }
 }
 
-// 5. C++ header patcher for Clang and Swift C++ interop compatibility
-function patchCxxHeaders(dir) {
-  if (!fs.existsSync(dir)) return;
-  const entries = fs.readdirSync(dir, { withFileTypes: true });
-  for (const entry of entries) {
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      patchCxxHeaders(fullPath);
-    } else if (entry.isFile() && entry.name.endsWith('.h')) {
-      let content = fs.readFileSync(fullPath, 'utf8');
-      let modified = false;
+// 5. C++ header patcher with clean dedicated SwiftBridging.h
+const includeDir = path.join(__dirname, '..', 'node_modules', 'expo-modules-jsi', 'apple', 'Sources', 'ExpoModulesJSI-Cxx', 'include');
+if (fs.existsSync(includeDir)) {
+  const swiftBridgingPath = path.join(includeDir, 'SwiftBridging.h');
+  const swiftBridgingContent = `#pragma once
 
-      const fallbackDefs = `
+#if __has_include(<swift/bridging>)
+#include <swift/bridging>
+#endif
+
 #if __has_attribute(swift_attr)
 #ifndef SWIFT_RETURNS_RETAINED
 #define SWIFT_RETURNS_RETAINED __attribute__((swift_attr("returns_retained")))
@@ -314,32 +304,117 @@ function patchCxxHeaders(dir) {
 #endif
 #endif
 `;
+  fs.writeFileSync(swiftBridgingPath, swiftBridgingContent, 'utf8');
+  console.log('✅ Created SwiftBridging.h');
 
-      if (entry.name === 'RuntimeScheduler.h') {
-        if (!content.includes('SWIFT_RETURNS_RETAINED RuntimeScheduler(')) {
-          content = content.replace(/(\s+)RuntimeScheduler\(void \*scheduler/g, '$1SWIFT_RETURNS_RETAINED RuntimeScheduler(void *scheduler');
-          content = content.replace(/(\s+)RuntimeScheduler\(\)\s*\{\}/g, '$1SWIFT_RETURNS_RETAINED RuntimeScheduler() {}');
-          modified = true;
+  // Exact clean Public/NativeState.h
+  const publicDir = path.join(includeDir, 'Public');
+  if (fs.existsSync(publicDir)) {
+    const nativeStatePath = path.join(publicDir, 'NativeState.h');
+    const cleanNativeState = `#pragma once
+
+#include "../SwiftBridging.h"
+#include <memory>
+#include <jsi/jsi.h>
+
+namespace expo {
+
+/**
+ Base class for \`jsi::NativeState\` instances that need to round-trip through
+ a Swift wrapper. Holds an opaque context pointer and a destructor callback
+ that runs when the underlying shared_ptr is released. The context pointer is
+ opaque to C++ — only the producer of the instance interprets it.
+ */
+class NativeState : public facebook::jsi::NativeState {
+public:
+  using Context = void *;
+  using ContextDeallocator = void (*)(Context);
+
+  explicit NativeState(Context context = nullptr, ContextDeallocator contextDeallocator = nullptr)
+    : _context(context), _contextDeallocator(contextDeallocator) {}
+
+  NativeState(NativeState &&other) noexcept
+    : _context(other._context), _contextDeallocator(other._contextDeallocator) {
+    other._contextDeallocator = nullptr;
+  }
+  NativeState &operator=(NativeState &&other) noexcept {
+    if (this != &other) {
+      if (_contextDeallocator) {
+        _contextDeallocator(_context);
+      }
+      _context = other._context;
+      _contextDeallocator = other._contextDeallocator;
+      other._contextDeallocator = nullptr;
+    }
+    return *this;
+  }
+
+  ~NativeState() override {
+    if (_contextDeallocator) {
+      _contextDeallocator(_context);
+    }
+  }
+
+  SWIFT_RETURNS_INDEPENDENT_VALUE
+  inline Context getContext() const {
+    return _context;
+  }
+
+private:
+  Context _context;
+  ContextDeallocator _contextDeallocator;
+};
+
+using NativeStateShared = std::shared_ptr<facebook::jsi::NativeState>;
+using NativeStateWeak = std::weak_ptr<facebook::jsi::NativeState>;
+
+} // namespace expo
+`;
+    fs.writeFileSync(nativeStatePath, cleanNativeState, 'utf8');
+    console.log('✅ Wrote pristine Public/NativeState.h');
+  }
+
+  // Clean and patch remaining root C++ headers
+  function cleanAndPatchHeaders(dir) {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isFile() && entry.name.endsWith('.h') && entry.name !== 'SwiftBridging.h') {
+        let content = fs.readFileSync(fullPath, 'utf8');
+
+        // Strip any existing macro fallbacks completely
+        content = content.replace(/#if\s+__has_include\(<swift\/bridging>\)[\s\S]*?#endif\n?/g, '');
+        content = content.replace(/#if\s+__has_attribute\(swift_attr\)[\s\S]*?#endif\n?/g, '');
+        content = content.replace(/#ifndef\s+SWIFT_[A-Z_]+[\s\S]*?#endif\n?/g, '');
+        content = content.replace(/#else[\s\S]*?#endif\n?/g, '');
+        content = content.replace(/#include\s+<swift\/bridging>\n?/g, '');
+        content = content.replace(/#include\s+"SwiftBridging\.h"\n?/g, '');
+
+        // Inject single clean include
+        if (content.includes('#ifdef __cplusplus')) {
+          content = content.replace('#ifdef __cplusplus', '#ifdef __cplusplus\n\n#include "SwiftBridging.h"');
+        } else {
+          content = content.replace('#pragma once', '#pragma once\n\n#include "SwiftBridging.h"');
         }
-      }
 
-      // Inject robust macro fallback definitions
-      if (content.includes('#include <swift/bridging>')) {
-        // Strip any previous naive fallback blocks
-        content = content.replace(/\n#ifndef SWIFT_RETURNS_RETAINED[\s\S]*?#endif\n#endif/g, '');
-        content = content.replace(/\n#ifndef SWIFT_RETURNS_RETAINED[\s\S]*?#endif\n/g, '\n');
-        content = content.replace('#include <swift/bridging>', `#include <swift/bridging>\n${fallbackDefs}`);
-        modified = true;
-      }
+        if (entry.name === 'RuntimeScheduler.h') {
+          if (!content.includes('SWIFT_RETURNS_RETAINED RuntimeScheduler(')) {
+            content = content.replace(/(\s+)RuntimeScheduler\(void \*scheduler/g, '$1SWIFT_RETURNS_RETAINED RuntimeScheduler(void *scheduler');
+            content = content.replace(/(\s+)RuntimeScheduler\(\)\s*\{\}/g, '$1SWIFT_RETURNS_RETAINED RuntimeScheduler() {}');
+          }
+        }
 
-      if (modified) {
+        // Clean up redundant blank lines
+        content = content.replace(/\n{3,}/g, '\n\n');
+
         fs.writeFileSync(fullPath, content, 'utf8');
-        console.log(`✅ Patched C++ header: ${entry.name}`);
+        console.log(`✅ Cleaned and patched C++ header: ${entry.name}`);
       }
     }
   }
+
+  cleanAndPatchHeaders(includeDir);
 }
 
 const sourcesDir = path.join(__dirname, '..', 'node_modules', 'expo-modules-jsi', 'apple', 'Sources');
 patchSwiftFiles(sourcesDir);
-patchCxxHeaders(sourcesDir);
