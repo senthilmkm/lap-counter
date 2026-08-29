@@ -137,19 +137,43 @@ export default function StravaConnectModal({
       return;
     }
 
-    const token = accessTokenInput.trim();
-    if (!token) {
-      Alert.alert('Missing Token', 'Please enter your Strava Access Token from strava.com/settings/api');
+    const rawInput = accessTokenInput.trim();
+    if (!rawInput) {
+      Alert.alert('Missing Input', 'Please enter your Strava Access Token or Authorization Code.');
       return;
     }
 
     setIsLoading(true);
     setTestSuccessMessage(null);
 
+    // If user pasted a URL or string containing ?code= or &code=
+    let code: string | null = null;
+    if (rawInput.includes('code=')) {
+      const match = rawInput.match(/[?&]code=([^&#]+)/);
+      code = match ? decodeURIComponent(match[1]) : null;
+    }
+
+    if (code) {
+      // Exchange authorization code for a full activity:write token
+      const exchangeRes = await exchangeStravaAuthCode(code, isPremium);
+      setIsLoading(false);
+      if (exchangeRes.success) {
+        setConnected(true);
+        setAthleteName(exchangeRes.athleteName || 'Strava Athlete');
+        setTokens(getStravaTokens());
+        onConnectionChange(true);
+        Alert.alert(
+          'Strava Connected! 🚴‍♂️',
+          `Successfully authorized with Strava write permissions!\nAthlete: ${exchangeRes.athleteName}\n\nCompleted workouts will now automatically sync to your Strava feed!`
+        );
+        return;
+      }
+    }
+
     const futureExpiry = Math.floor(Date.now() / 1000) + 21600; // 6 hours
     const newTokens = {
-      accessToken: token,
-      refreshToken: token,
+      accessToken: rawInput,
+      refreshToken: rawInput,
       expiresAt: futureExpiry,
       athleteId: 'athlete_pending',
     };
@@ -167,7 +191,7 @@ export default function StravaConnectModal({
       onConnectionChange(true);
       Alert.alert(
         'Strava Connected! 🚴‍♂️',
-        `Successfully verified with Strava!\n\nConnected Athlete: ${check.athleteName}\nAthlete ID: ${check.athleteId}\n\nWorkouts will now auto-upload to your Strava profile!`
+        `Successfully verified with Strava!\n\nConnected Athlete: ${check.athleteName}\nAthlete ID: ${check.athleteId}\n\nNote: If sending an activity fails with an Authorization Error, please tap "🟠 Log in with Strava" to grant activity write permissions!`
       );
     } else {
       Alert.alert(
