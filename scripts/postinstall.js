@@ -374,46 +374,144 @@ using NativeStateWeak = std::weak_ptr<facebook::jsi::NativeState>;
     console.log('✅ Wrote pristine Public/NativeState.h');
   }
 
-  // Clean and patch remaining root C++ headers
-  function cleanAndPatchHeaders(dir) {
-    const entries = fs.readdirSync(dir, { withFileTypes: true });
-    for (const entry of entries) {
-      const fullPath = path.join(dir, entry.name);
-      if (entry.isFile() && entry.name.endsWith('.h') && entry.name !== 'SwiftBridging.h') {
-        let content = fs.readFileSync(fullPath, 'utf8');
+  // Exact clean RetainedSwiftPointer.h
+  const retainedSwiftPointerPath = path.join(includeDir, 'RetainedSwiftPointer.h');
+  const cleanRetainedSwiftPointer = `#pragma once
 
-        // Strip any existing macro fallbacks completely
-        content = content.replace(/#if\s+__has_include\(<swift\/bridging>\)[\s\S]*?#endif\n?/g, '');
-        content = content.replace(/#if\s+__has_attribute\(swift_attr\)[\s\S]*?#endif\n?/g, '');
-        content = content.replace(/#ifndef\s+SWIFT_[A-Z_]+[\s\S]*?#endif\n?/g, '');
-        content = content.replace(/#else[\s\S]*?#endif\n?/g, '');
-        content = content.replace(/#include\s+<swift\/bridging>\n?/g, '');
-        content = content.replace(/#include\s+"SwiftBridging\.h"\n?/g, '');
+#include "SwiftBridging.h"
+#include <memory>
 
-        // Inject single clean include
-        if (content.includes('#ifdef __cplusplus')) {
-          content = content.replace('#ifdef __cplusplus', '#ifdef __cplusplus\n\n#include "SwiftBridging.h"');
-        } else {
-          content = content.replace('#pragma once', '#pragma once\n\n#include "SwiftBridging.h"');
+namespace expo {
+
+/**
+ Holds a type-erased pointer to a Swift instance that is now owned by this C++ instance.
+ Derived classes must call the deallocator function once the pointer is no longer necessary and can be released by Swift.
+ */
+class RetainedSwiftPointer {
+public:
+  using Context = void *_Nonnull;
+  using Deallocator = void(Context);
+
+  explicit RetainedSwiftPointer(Context context, Deallocator deallocator) : _context(context), _deallocator(std::move(deallocator)) {}
+
+  virtual ~RetainedSwiftPointer() = default;
+
+protected:
+  Context _context;
+  Deallocator *_Nonnull _deallocator;
+
+} SWIFT_IMMORTAL_REFERENCE; // class RetainedSwiftPointer
+
+} // namespace expo
+`;
+  fs.writeFileSync(retainedSwiftPointerPath, cleanRetainedSwiftPointer, 'utf8');
+
+  // Exact clean HostFunctionClosure.h
+  const hostFunctionClosurePath = path.join(includeDir, 'HostFunctionClosure.h');
+  const cleanHostFunctionClosure = `#pragma once
+
+#include "SwiftBridging.h"
+#include <jsi/jsi.h>
+#include "RetainedSwiftPointer.h"
+
+namespace expo {
+
+/**
+ Holds a pointer to a closure in Swift that provides host function's implementation.
+ */
+class HostFunctionClosure final : public RetainedSwiftPointer {
+public:
+  using Closure = facebook::jsi::Value(Context context, const facebook::jsi::Value *_Nonnull thisValue, const facebook::jsi::Value *_Nonnull args, size_t count);
+
+  explicit HostFunctionClosure(Context context, Closure closure, Deallocator deallocator) : RetainedSwiftPointer(context, deallocator), _closure(closure) {};
+
+  virtual ~HostFunctionClosure() {
+    _deallocator(_context);
+  }
+
+  /**
+   Calls the Swift closure with given \`this\` value and arguments.
+   */
+  inline facebook::jsi::Value call(const facebook::jsi::Value &thisValue, const facebook::jsi::Value *_Nonnull args, size_t count) const {
+    return _closure(_context, &thisValue, args, count);
+  }
+
+private:
+  Closure *_Nonnull _closure;
+
+} SWIFT_IMMORTAL_REFERENCE; // class HostFunctionClosure
+
+} // namespace expo
+`;
+  fs.writeFileSync(hostFunctionClosurePath, cleanHostFunctionClosure, 'utf8');
+
+  // Fix JSIUtils.h missing #endif
+  const jsiUtilsPath = path.join(includeDir, 'JSIUtils.h');
+  if (fs.existsSync(jsiUtilsPath)) {
+    let jsiContent = fs.readFileSync(jsiUtilsPath, 'utf8');
+    if (!jsiContent.includes('SwiftBridging.h')) {
+      jsiContent = jsiContent.replace('#pragma once', '#pragma once\n\n#include "SwiftBridging.h"');
+    }
+    // Fix tryBorrowMutableBuffer and releaseBorrowedBuffer #if/#endif
+    if (jsiContent.includes('tryBorrowMutableBuffer') && !jsiContent.includes('#else\n  return {nullptr, 0, nullptr};\n#endif')) {
+      jsiContent = jsiContent.replace(
+        /return \{data, size, retained\};\n\}/g,
+        'return {data, size, retained};\n#else\n  return {nullptr, 0, nullptr};\n#endif\n}'
+      );
+      jsiContent = jsiContent.replace(
+        /delete static_cast<std::shared_ptr<jsi::MutableBuffer> \*>\(retainer\);\n\}/g,
+        'delete static_cast<std::shared_ptr<jsi::MutableBuffer> *>(retainer);\n#endif\n}'
+      );
+    }
+    fs.writeFileSync(jsiUtilsPath, jsiContent, 'utf8');
+    console.log('✅ Patched JSIUtils.h with complete #if/#endif blocks');
+  }
+
+  // Fix RuntimeScheduler.h
+  const runtimeSchedulerPath = path.join(includeDir, 'RuntimeScheduler.h');
+  if (fs.existsSync(runtimeSchedulerPath)) {
+    let schedContent = fs.readFileSync(runtimeSchedulerPath, 'utf8');
+    if (!schedContent.includes('SwiftBridging.h')) {
+      schedContent = schedContent.replace('#ifdef __cplusplus', '#ifdef __cplusplus\n\n#include "SwiftBridging.h"');
+    }
+    if (!schedContent.includes('SWIFT_RETURNS_RETAINED RuntimeScheduler(')) {
+      schedContent = schedContent.replace(/(\s+)RuntimeScheduler\(void \*scheduler/g, '$1SWIFT_RETURNS_RETAINED RuntimeScheduler(void *scheduler');
+      schedContent = schedContent.replace(/(\s+)RuntimeScheduler\(\)\s*\{\}/g, '$1SWIFT_RETURNS_RETAINED RuntimeScheduler() {}');
+    }
+    fs.writeFileSync(runtimeSchedulerPath, schedContent, 'utf8');
+    console.log('✅ Patched RuntimeScheduler.h');
+  }
+
+  // Fix CppError.h
+  const cppErrorPath = path.join(includeDir, 'CppError.h');
+  if (fs.existsSync(cppErrorPath)) {
+    let cppContent = fs.readFileSync(cppErrorPath, 'utf8');
+    if (!cppContent.includes('SwiftBridging.h')) {
+      cppContent = cppContent.replace('#pragma once', '#pragma once\n\n#include "SwiftBridging.h"');
+    }
+    fs.writeFileSync(cppErrorPath, cppContent, 'utf8');
+    console.log('✅ Patched CppError.h');
+  }
+
+  // 6. Automated sanity check: verify ALL headers in ExpoModulesJSI-Cxx/include have 100% balanced #if / #endif
+  function verifyHeaders(d) {
+    for (const f of fs.readdirSync(d)) {
+      const full = path.join(d, f);
+      if (fs.statSync(full).isDirectory()) {
+        verifyHeaders(full);
+      } else if (f.endsWith('.h')) {
+        const content = fs.readFileSync(full, 'utf8');
+        const ifs = (content.match(/#\s*if(?:def|ndef)?\b/g) || []).length;
+        const endifs = (content.match(/#\s*endif\b/g) || []).length;
+        if (ifs !== endifs) {
+          throw new Error(`[FATAL] Header directive mismatch in ${f}: ${ifs} #if vs ${endifs} #endif`);
         }
-
-        if (entry.name === 'RuntimeScheduler.h') {
-          if (!content.includes('SWIFT_RETURNS_RETAINED RuntimeScheduler(')) {
-            content = content.replace(/(\s+)RuntimeScheduler\(void \*scheduler/g, '$1SWIFT_RETURNS_RETAINED RuntimeScheduler(void *scheduler');
-            content = content.replace(/(\s+)RuntimeScheduler\(\)\s*\{\}/g, '$1SWIFT_RETURNS_RETAINED RuntimeScheduler() {}');
-          }
-        }
-
-        // Clean up redundant blank lines
-        content = content.replace(/\n{3,}/g, '\n\n');
-
-        fs.writeFileSync(fullPath, content, 'utf8');
-        console.log(`✅ Cleaned and patched C++ header: ${entry.name}`);
+        console.log(`✅ Verified balanced directives in ${f} (${ifs} #if / ${endifs} #endif)`);
       }
     }
   }
 
-  cleanAndPatchHeaders(includeDir);
+  verifyHeaders(includeDir);
 }
 
 const sourcesDir = path.join(__dirname, '..', 'node_modules', 'expo-modules-jsi', 'apple', 'Sources');
