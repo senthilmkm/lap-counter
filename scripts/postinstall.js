@@ -6,10 +6,9 @@ const path = require('path');
 // hook whenever `npm install` or `npm ci` runs — including when EAS local
 // build runs `npm install` internally before `pod install`.
 //
-// We DELETE the problematic Package.swift files entirely instead of patching
-// them, because deletion is idempotent and survives any file-watching or
-// re-read by Xcode's SPM resolver. CocoaPods-based Expo/EAS builds do NOT
-// use these SPM packages — CocoaPods handles all dependencies separately.
+// We DELETE/PATCH specific Package.swift files that break Xcode's SPM resolver.
+// Only files that are NOT needed by the CocoaPods build scripts are deleted.
+// Files that ARE needed by pod build scripts must be kept (possibly patched).
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -68,21 +67,16 @@ if (fs.existsSync(macroPackageSwift)) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 3. Remove expo-modules-jsi Package.swift  (if it exists)
+// NOTE: expo-modules-jsi/apple/Package.swift is intentionally LEFT INTACT.
 //
-//    expo-modules-jsi's Package.swift uses experimental Swift features
-//    (NonescapableTypes, bare-slash regex) that require Swift 6 language mode.
-//    When built via CocoaPods, the podspec handles compilation correctly.
-//    The SPM Package.swift is only needed for Meta's SPM-first workflow.
+//    The ExpoModulesJSI CocoaPod has a build script phase
+//    "[CP-User] Build ExpoModulesJSI xcframework" that invokes
+//    build-xcframework.sh which needs Package.swift to build the xcframework
+//    via `xcodebuild -buildPackage`. Deleting it breaks the build.
+//
+//    This Package.swift does NOT cause Xcode SPM resolution failures because
+//    it has no external package dependencies (dependencies: []). The SPM
+//    resolver successfully resolves it with zero network requests.
 // ─────────────────────────────────────────────────────────────────────────────
-const jsiPackageSwift = path.join(
-  __dirname, '..', 'node_modules', 'expo-modules-jsi', 'apple', 'Package.swift'
-);
-if (fs.existsSync(jsiPackageSwift)) {
-  fs.rmSync(jsiPackageSwift);
-  console.log('✅ Removed expo-modules-jsi/apple/Package.swift');
-} else {
-  console.log('✔  expo-modules-jsi/apple/Package.swift already removed');
-}
 
 console.log('✅ Postinstall completed successfully');
