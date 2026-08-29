@@ -298,31 +298,39 @@ export async function uploadWorkoutToStrava(
   }
 }
 
+let isSyncingQueue = false;
+
 /**
  * Automatically drains the offline sync queue by uploading all pending workouts to Strava.
  * Executed on app launch, foreground resume, or network reconnection.
+ * Uses an in-flight mutex to prevent concurrent sync race conditions.
  * Returns the count of successfully synced workouts.
  */
 export async function syncPendingWorkoutsToStrava(isPremium: boolean): Promise<number> {
-  if (!isPremium || !isStravaAutoSyncEnabled()) {
+  if (!isPremium || !isStravaAutoSyncEnabled() || isSyncingQueue) {
     return 0;
   }
 
   const pendingIds = getPendingSyncWorkouts();
   if (pendingIds.length === 0) return 0;
 
+  isSyncingQueue = true;
   let syncedCount = 0;
-  for (const workoutId of [...pendingIds]) {
-    const workout = getWorkoutById(workoutId);
-    if (!workout) {
-      removeWorkoutFromPendingSync(workoutId);
-      continue;
+  try {
+    for (const workoutId of [...pendingIds]) {
+      const workout = getWorkoutById(workoutId);
+      if (!workout) {
+        removeWorkoutFromPendingSync(workoutId);
+        continue;
+      }
+      const path = getWorkoutPath(workoutId);
+      const result = await uploadWorkoutToStrava(workout, path, isPremium);
+      if (result.success) {
+        syncedCount++;
+      }
     }
-    const path = getWorkoutPath(workoutId);
-    const result = await uploadWorkoutToStrava(workout, path, isPremium);
-    if (result.success) {
-      syncedCount++;
-    }
+  } finally {
+    isSyncingQueue = false;
   }
   return syncedCount;
 }

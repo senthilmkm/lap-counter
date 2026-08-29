@@ -236,6 +236,7 @@ export default function App() {
   const [recordMostLaps, setRecordMostLaps] = useState(() => parseInt(getSettingSync('prMostLaps', '0'), 10));
   const [recordLongestSession, setRecordLongestSession] = useState(() => parseInt(getSettingSync('prLongestSession', '0'), 10));
   const [brokenRecords, setBrokenRecords] = useState<string[]>([]);
+  const savedWorkoutIdsRef = useRef<Set<string>>(new Set());
 
   // Update settings handlers
   const handleWeightInputChange = (val: string) => {
@@ -454,8 +455,8 @@ export default function App() {
   useEffect(() => {
     if (isFinished && sessionStartTs) {
       const workoutId = `workout_${sessionStartTs}`;
-      const existing = historyList.find((w) => w.id === workoutId);
-      if (!existing) {
+      if (!savedWorkoutIdsRef.current.has(workoutId) && !historyList.some((w) => w.id === workoutId)) {
+        savedWorkoutIdsRef.current.add(workoutId);
         const totalDuration = elapsedSeconds || 1;
         const totalSteps = mode === 'indoor' ? (state as DetectorState).steps || 0 : 0;
         const avgCadence = totalSteps > 0 ? (totalSteps * 60) / totalDuration : 0;
