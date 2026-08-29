@@ -350,8 +350,39 @@ export async function uploadWorkoutToStrava(
   try {
     const isOutdoor = workout.mode === 'outdoor' && path.length > 0;
     const durationSeconds = Math.max(1, Math.round((workout.endTime - workout.startTime) / 1000));
-    const title = `Orbit ${workout.mode === 'indoor' ? 'Indoor' : 'Outdoor'} Laps - ${workout.totalLaps} Laps`;
-    const description = `Tracked hands-free with Orbit Lap Counter.\n• Total Laps: ${workout.totalLaps}\n• Cadence: ${Math.round(workout.cadence)} spm\n• Steps: ${workout.steps}`;
+    
+    // Calculate total distance in meters from GPS path, steps, or standard lap count
+    let distanceMeters = 0;
+    if (isOutdoor && path.length >= 2) {
+      const R = 6371000; // Earth radius in meters
+      for (let i = 1; i < path.length; i++) {
+        const p1 = path[i - 1];
+        const p2 = path[i];
+        const dLat = ((p2.latitude - p1.latitude) * Math.PI) / 180;
+        const dLon = ((p2.longitude - p1.longitude) * Math.PI) / 180;
+        const a =
+          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos((p1.latitude * Math.PI) / 180) *
+            Math.cos((p2.latitude * Math.PI) / 180) *
+            Math.sin(dLon / 2) *
+            Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        distanceMeters += R * c;
+      }
+    }
+    if (distanceMeters <= 0) {
+      if (workout.steps && workout.steps > 0) {
+        const stride = workout.strideLength || 0.75;
+        distanceMeters = workout.steps * stride;
+      } else if (workout.totalLaps > 0) {
+        distanceMeters = workout.totalLaps * 400; // Standard 400m track lap
+      }
+    }
+    distanceMeters = Math.round(distanceMeters);
+
+    const distanceMilesStr = (distanceMeters / 1609.34).toFixed(2);
+    const title = `Orbit ${workout.mode === 'indoor' ? 'Indoor' : 'Outdoor'} Laps - ${workout.totalLaps} Laps (${distanceMilesStr} mi)`;
+    const description = `Tracked hands-free with Orbit Lap Counter.\n• Total Laps: ${workout.totalLaps}\n• Distance: ${distanceMilesStr} miles (${(distanceMeters / 1000).toFixed(2)} km)\n• Cadence: ${Math.round(workout.cadence)} spm\n• Steps: ${workout.steps}`;
 
     // Attempt 1: If Outdoor with GPS points, try GPX upload
     if (isOutdoor) {
@@ -395,6 +426,7 @@ export async function uploadWorkoutToStrava(
         sport_type: 'Run',
         start_date_local: new Date(workout.startTime).toISOString(),
         elapsed_time: durationSeconds,
+        distance: distanceMeters,
         description: description,
       }),
     });
