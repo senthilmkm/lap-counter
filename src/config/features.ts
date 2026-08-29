@@ -11,5 +11,5 @@ export const FEATURE_FLAGS = {
    * Strava auto-sync on workout completion, and orange synced badges in History.
    * Set to `true` to enable or `false` to completely hide from users.
    */
-  ENABLE_STRAVA_INTEGRATION: true,
+  ENABLE_STRAVA_INTEGRATION: false,
 };
