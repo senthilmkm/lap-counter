@@ -680,7 +680,6 @@ export function useLapCounter() {
   // (which happens in tests using fake timers).
   useEffect(() => {
     if (activeState.count > lastHapticCount.current) {
-      const isNewLap = lastHapticCount.current > 0;
       lastHapticCount.current = activeState.count;
       const isBleFree = 'isBleFree' in activeState && activeState.isBleFree;
       if (mode === 'indoor' && !isBleFree) {
@@ -690,7 +689,7 @@ export function useLapCounter() {
 
       // Ghost Pacer live delta evaluation
       const now = Date.now();
-      const lapDuration = lastLapTsRef.current ? Math.max(1, Math.round((now - lastLapTsRef.current) / 1000)) : elapsedSeconds;
+      const lapDuration = lastLapTsRef.current ? Math.max(1, Math.round((now - lastLapTsRef.current) / 1000)) : (elapsedSeconds || 1);
       lastLapTsRef.current = now;
 
       let coachCueText: string | null = null;
@@ -704,8 +703,8 @@ export function useLapCounter() {
         coachCueText = evalState.coachCue;
       }
 
-      // Hands-Free Voice Splits (TTS)
-      if (isNewLap && voiceCuesEnabled) {
+      // Hands-Free Voice Splits (TTS) - Trigger for every completed lap including Lap 1
+      if (voiceCuesEnabled && activeState.count > 0) {
         if (coachCueText) {
           Speech.speak(coachCueText, { language: 'en' });
         } else {

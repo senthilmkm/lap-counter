@@ -30,11 +30,13 @@ import { saveWorkout, getWorkouts, getWorkoutPath, DBWorkout, getSettingSync, sa
 import WorkoutMap from './src/components/WorkoutMap';
 import GhostPacerHUD from './src/components/GhostPacerHUD';
 import ShareableLapCard from './src/components/ShareableLapCard';
+import StravaConnectModal from './src/components/StravaConnectModal';
 import { GhostMode } from './src/logic/ghostPacer';
 import {
   uploadWorkoutToStrava,
   isStravaAutoSyncEnabled,
   setStravaAutoSyncEnabled,
+  isStravaConnected,
   getStravaTokens,
   saveStravaTokens,
   disconnectStrava,
@@ -197,6 +199,7 @@ export default function App() {
   const [selectedGhostMode, setSelectedGhostMode] = useState<GhostMode>('none');
   const [targetLapSeconds, setTargetLapSeconds] = useState<number>(90);
   const [showSocialCard, setShowSocialCard] = useState(false);
+  const [showStravaModal, setShowStravaModal] = useState(false);
   const [socialCardData, setSocialCardData] = useState<SocialCardData | null>(null);
   const [stravaSyncActive, setStravaSyncActive] = useState<boolean>(() => isStravaAutoSyncEnabled());
   const [targetInput, setTargetInput] = useState(() => {
@@ -1046,8 +1049,19 @@ export default function App() {
                   setShowPaywall(true);
                   return;
                 }
+                if (val && !isStravaConnected()) {
+                  setShowStravaModal(true);
+                  return;
+                }
                 setStravaAutoSyncEnabled(val, isPremium);
                 setStravaSyncActive(val);
+              }}
+              onOpenStravaModal={() => {
+                if (!isPremium) {
+                  setShowPaywall(true);
+                  return;
+                }
+                setShowStravaModal(true);
               }}
             />
           )}
@@ -1414,6 +1428,17 @@ export default function App() {
               data={socialCardData}
             />
           )}
+
+          {/* Strava Connection & OAuth Modal */}
+          <StravaConnectModal
+            visible={showStravaModal}
+            onClose={() => setShowStravaModal(false)}
+            isPremium={isPremium}
+            onShowPaywall={() => setShowPaywall(true)}
+            onConnectionChange={(connected) => {
+              setStravaSyncActive(connected);
+            }}
+          />
 
         </KeyboardAvoidingView>
       </SafeAreaView>
@@ -2227,6 +2252,7 @@ function SettingsScreen(props: {
   onShowInfoModal: () => void;
   stravaAutoSyncActive: boolean;
   onStravaAutoSyncToggle: (v: boolean) => void;
+  onOpenStravaModal: () => void;
 }) {
   const appVersion = '1.0.0';
   const subLabel = props.subTier === 'annual' ? '👑 Annual Premium'
@@ -2309,6 +2335,23 @@ function SettingsScreen(props: {
             trackColor={{ true: '#fc4c02', false: '#374151' }}
           />
         </View>
+        <Pressable
+          onPress={props.onOpenStravaModal}
+          style={{
+            marginTop: 12,
+            backgroundColor: isStravaConnected() ? 'rgba(16, 185, 129, 0.15)' : 'rgba(252, 76, 2, 0.15)',
+            borderWidth: 1,
+            borderColor: isStravaConnected() ? '#10b981' : '#fc4c02',
+            paddingVertical: 10,
+            paddingHorizontal: 12,
+            borderRadius: 10,
+            alignItems: 'center',
+          }}
+        >
+          <Text style={{ color: isStravaConnected() ? '#6ee7b7' : '#fb923c', fontWeight: '700', fontSize: 13 }}>
+            {isStravaConnected() ? '✓ Strava Account Connected (Manage / Disconnect)' : '🟠 Connect Strava Account'}
+          </Text>
+        </Pressable>
       </View>
 
       {/* WEATHER UNIT */}
