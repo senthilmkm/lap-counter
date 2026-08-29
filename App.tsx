@@ -3,6 +3,7 @@ import { useMemo, useState, useEffect, useRef } from 'react';
 import {
   Alert,
   Animated,
+  AppState,
   Easing,
   Keyboard,
   KeyboardAvoidingView,
@@ -37,6 +38,7 @@ import {
   getStravaTokens,
   saveStravaTokens,
   disconnectStrava,
+  syncPendingWorkoutsToStrava,
 } from './src/services/stravaService';
 import { SocialCardData, shareWorkoutStory } from './src/services/shareService';
 
@@ -434,6 +436,19 @@ export default function App() {
       console.warn('Failed to share workout:', e);
     }
   };
+
+  // Automatically drain offline Strava sync queue on startup and whenever app returns to foreground
+  useEffect(() => {
+    if (isPremium && stravaSyncActive) {
+      syncPendingWorkoutsToStrava(isPremium);
+    }
+    const sub = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active' && isPremium && stravaSyncActive) {
+        syncPendingWorkoutsToStrava(isPremium);
+      }
+    });
+    return () => sub.remove();
+  }, [isPremium, stravaSyncActive]);
 
   // Save workout to SQLite database when workout completes & evaluate personal records
   useEffect(() => {

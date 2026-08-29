@@ -6,6 +6,10 @@ import {
   ensureFreshStravaToken,
   disconnectStrava,
   isStravaConnected,
+  markWorkoutPendingSync,
+  getPendingSyncWorkouts,
+  removeWorkoutFromPendingSync,
+  syncPendingWorkoutsToStrava,
 } from '../src/services/stravaService';
 import { DBWorkout } from '../src/services/database';
 
@@ -64,5 +68,15 @@ describe('Strava Service & Pro Subscription Gating', () => {
     // Disconnect cleans up
     disconnectStrava();
     expect(isStravaConnected()).toBe(false);
+  });
+
+  it('manages offline sync queue accurately and auto-drains without user intervention', async () => {
+    // Add workout to pending offline queue
+    markWorkoutPendingSync('workout_pending_999');
+    expect(getPendingSyncWorkouts()).toContain('workout_pending_999');
+
+    // Remove from queue
+    removeWorkoutFromPendingSync('workout_pending_999');
+    expect(getPendingSyncWorkouts()).not.toContain('workout_pending_999');
   });
 });

@@ -127,6 +127,22 @@ export function getWorkouts(): DBWorkout[] {
 }
 
 /**
+ * Retrieves a single workout by its unique ID.
+ */
+export function getWorkoutById(workoutId: string): DBWorkout | null {
+  const db = getDatabase();
+  if (!db) return null;
+
+  try {
+    const row = db.getFirstSync<DBWorkout>(`SELECT * FROM workouts WHERE id = ?`, [workoutId]);
+    return row || null;
+  } catch (e) {
+    console.warn(`Failed to query workout by id ${workoutId}:`, e);
+    return null;
+  }
+}
+
+/**
  * Retrieves the GPS trail coordinates associated with a specific workout.
  */
 export function getWorkoutPath(workoutId: string): DBGpsPoint[] {

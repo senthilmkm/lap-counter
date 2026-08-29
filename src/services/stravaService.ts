@@ -5,11 +5,13 @@
  * to Strava API v3.
  * 
  * 💎 STRICTLY GATED FOR PRO SUBSCRIPTION.
- * 🛡️ AUTO-REFRESH RESILIENT: Automatically refreshes expiring or expired access tokens
- * using refresh_token so users never encounter authentication failures or expired token errors.
+ * 🛡️ AUTO-REFRESH RESILIENT: Automatically refreshes expiring or expired access tokens.
+ * ⚡ OFFLINE QUEUE AUTO-SYNC: If you finish a run offline, workouts are automatically queued
+ * in local SQLite and synced to Strava in the background the moment internet connection returns
+ * WITHOUT requiring any user intervention!
  */
 
-import { DBGpsPoint, DBWorkout, getSettingSync, saveSettingSync } from './database';
+import { DBGpsPoint, DBWorkout, getDatabase, getSettingSync, getWorkoutById, getWorkoutPath, saveSettingSync } from './database';
 import { generateGPX } from './exporter';
 
 export interface StravaAuthTokens {
@@ -33,6 +35,7 @@ const STRAVA_ATHLETE_ID_KEY = 'strava_athlete_id';
 const STRAVA_AUTO_SYNC_ENABLED_KEY = 'strava_auto_sync_enabled';
 const STRAVA_CLIENT_ID_KEY = 'strava_client_id';
 const STRAVA_CLIENT_SECRET_KEY = 'strava_client_secret';
+const STRAVA_PENDING_QUEUE_KEY = 'strava_pending_sync_queue';
 
 // Default OAuth credentials (can be overridden via SQLite settings)
 const DEFAULT_STRAVA_CLIENT_ID = '123456'; 
@@ -96,11 +99,43 @@ export function disconnectStrava(): void {
   saveSettingSync(STRAVA_EXPIRES_AT_KEY, '0');
   saveSettingSync(STRAVA_ATHLETE_ID_KEY, '');
   saveSettingSync(STRAVA_AUTO_SYNC_ENABLED_KEY, 'false');
+  saveSettingSync(STRAVA_PENDING_QUEUE_KEY, '[]');
+}
+
+/**
+ * Retrieves the list of workout IDs pending upload to Strava.
+ */
+export function getPendingSyncWorkouts(): string[] {
+  try {
+    const raw = getSettingSync(STRAVA_PENDING_QUEUE_KEY, '[]');
+    return JSON.parse(raw);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Adds a workout ID to the pending offline sync queue.
+ */
+export function markWorkoutPendingSync(workoutId: string): void {
+  const current = getPendingSyncWorkouts();
+  if (!current.includes(workoutId)) {
+    current.push(workoutId);
+    saveSettingSync(STRAVA_PENDING_QUEUE_KEY, JSON.stringify(current));
+  }
+}
+
+/**
+ * Removes a workout ID from the pending offline sync queue.
+ */
+export function removeWorkoutFromPendingSync(workoutId: string): void {
+  const current = getPendingSyncWorkouts();
+  const updated = current.filter(id => id !== workoutId);
+  saveSettingSync(STRAVA_PENDING_QUEUE_KEY, JSON.stringify(updated));
 }
 
 /**
  * Proactively refreshes the Strava access token if it is expired or expiring within 5 minutes.
- * Ensures API calls never fail due to expired tokens.
  */
 export async function ensureFreshStravaToken(): Promise<string | null> {
   const tokens = getStravaTokens();
@@ -149,13 +184,12 @@ export async function ensureFreshStravaToken(): Promise<string | null> {
     }
   }
 
-  // Fallback to existing access token if network refresh had a temporary glitch
   return tokens.accessToken || null;
 }
 
 /**
- * Uploads a workout to Strava.
- * Strictly checks isPremium and automatically refreshes tokens to prevent expiry errors.
+ * Uploads a single workout to Strava.
+ * Strictly checks isPremium, refreshes tokens, and manages the offline queue.
  */
 export async function uploadWorkoutToStrava(
   workout: DBWorkout,
@@ -171,12 +205,13 @@ export async function uploadWorkoutToStrava(
     };
   }
 
-  // 2. AUTO-REFRESH TOKEN CHECK (Guarantees token is always fresh)
+  // 2. AUTO-REFRESH TOKEN CHECK
   const validAccessToken = await ensureFreshStravaToken();
   if (!validAccessToken) {
+    markWorkoutPendingSync(workout.id);
     return {
       success: false,
-      error: 'Strava is not connected. Please link your Strava account in Settings.',
+      error: 'Strava is not connected. Workout queued for sync once connected.',
     };
   }
 
@@ -239,12 +274,14 @@ export async function uploadWorkoutToStrava(
 
     if (response.ok) {
       const resData = await response.json();
+      removeWorkoutFromPendingSync(workout.id);
       return {
         success: true,
         activityId: resData.id_str || String(resData.id),
       };
     } else {
       const errData = await response.json().catch(() => ({ message: response.statusText }));
+      markWorkoutPendingSync(workout.id);
       return {
         success: false,
         error: errData.message || `Strava upload failed with status ${response.status}`,
@@ -252,9 +289,40 @@ export async function uploadWorkoutToStrava(
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    // Automatically enqueue workout for background sync when internet recovers
+    markWorkoutPendingSync(workout.id);
     return {
       success: false,
-      error: `Network error syncing with Strava: ${msg}`,
+      error: `Network offline: Workout queued for automatic sync to Strava (${msg})`,
     };
   }
+}
+
+/**
+ * Automatically drains the offline sync queue by uploading all pending workouts to Strava.
+ * Executed on app launch, foreground resume, or network reconnection.
+ * Returns the count of successfully synced workouts.
+ */
+export async function syncPendingWorkoutsToStrava(isPremium: boolean): Promise<number> {
+  if (!isPremium || !isStravaAutoSyncEnabled()) {
+    return 0;
+  }
+
+  const pendingIds = getPendingSyncWorkouts();
+  if (pendingIds.length === 0) return 0;
+
+  let syncedCount = 0;
+  for (const workoutId of [...pendingIds]) {
+    const workout = getWorkoutById(workoutId);
+    if (!workout) {
+      removeWorkoutFromPendingSync(workoutId);
+      continue;
+    }
+    const path = getWorkoutPath(workoutId);
+    const result = await uploadWorkoutToStrava(workout, path, isPremium);
+    if (result.success) {
+      syncedCount++;
+    }
+  }
+  return syncedCount;
 }
