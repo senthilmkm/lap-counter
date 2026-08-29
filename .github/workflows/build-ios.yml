@@ -1,0 +1,37 @@
+name: Build & Submit iOS (Free Cloud Mac Runner)
+
+on:
+  workflow_dispatch: # Allows you to trigger the build with 1 click from GitHub Actions UI
+
+jobs:
+  build_and_submit:
+    name: 🍎 iOS Production Build & App Store Submit
+    runs-on: macos-14 # Free GitHub Apple Silicon macOS runner with Xcode
+    timeout-minutes: 90
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: 📦 Install Project Dependencies
+        run: npm ci
+
+      - name: 🚀 Setup EAS CLI
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: 🔨 Build iOS IPA (Free Local Xcode Build)
+        run: |
+          eas build --platform ios --profile production --local --non-interactive --output ./Orbit.ipa
+
+      - name: 📤 Submit IPA to Apple App Store Connect
+        run: |
+          eas submit --platform ios --profile production --path ./Orbit.ipa --non-interactive

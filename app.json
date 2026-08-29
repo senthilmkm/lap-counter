@@ -27,7 +27,7 @@
           "com.senth.lapcounter.background-scan"
         ]
       },
-      "buildNumber": "8"
+      "buildNumber": "9"
     },
     "android": {
       "package": "com.senth.lapcounter",
