@@ -26,6 +26,8 @@ import {
   setStravaAutoSyncEnabled,
   verifyStravaConnection,
   uploadWorkoutToStrava,
+  getStravaAuthUrl,
+  exchangeStravaAuthCode,
 } from '../services/stravaService';
 
 interface StravaConnectModalProps {
@@ -61,8 +63,46 @@ export default function StravaConnectModal({
         setAccessTokenInput(curTokens.accessToken);
         void handleVerifyExisting(curTokens.accessToken);
       }
+
+      // Listen for OAuth deep link return (orbitapp://strava-callback?code=...)
+      const handleDeepLink = async (event: { url: string }) => {
+        if (!event.url || !event.url.includes('strava-callback')) return;
+        
+        try {
+          const urlObj = new URL(event.url.replace('orbitapp://', 'https://orbitapp.com/'));
+          const code = urlObj.searchParams.get('code');
+          if (code) {
+            setIsLoading(true);
+            const res = await exchangeStravaAuthCode(code, isPremium);
+            setIsLoading(false);
+            if (res.success) {
+              setConnected(true);
+              setAthleteName(res.athleteName || 'Strava Athlete');
+              setTokens(getStravaTokens());
+              onConnectionChange(true);
+              Alert.alert(
+                'Strava Connected! 🚴‍♂️',
+                `Successfully authorized with Strava!\nAthlete: ${res.athleteName}\n\nCompleted workouts will now automatically sync to your Strava feed!`
+              );
+            } else {
+              Alert.alert('Authorization Failed', res.error || 'Failed to exchange Strava token.');
+            }
+          }
+        } catch (err) {
+          console.warn('OAuth deep link parse error:', err);
+        }
+      };
+
+      const sub = Linking.addEventListener('url', handleDeepLink);
+      void Linking.getInitialURL().then((url) => {
+        if (url) handleDeepLink({ url });
+      });
+
+      return () => {
+        sub.remove();
+      };
     }
-  }, [visible]);
+  }, [visible, isPremium]);
 
   const handleVerifyExisting = async (token: string) => {
     const res = await verifyStravaConnection();
@@ -78,7 +118,7 @@ export default function StravaConnectModal({
       return;
     }
 
-    const authUrl = 'https://www.strava.com/oauth/mobile/authorize?client_id=141888&response_type=code&redirect_uri=orbitapp://strava-callback&approval_prompt=auto&scope=activity:write,read';
+    const authUrl = getStravaAuthUrl();
     
     try {
       await Linking.openURL(authUrl);

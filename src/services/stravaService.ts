@@ -37,9 +37,66 @@ const STRAVA_CLIENT_ID_KEY = 'strava_client_id';
 const STRAVA_CLIENT_SECRET_KEY = 'strava_client_secret';
 const STRAVA_PENDING_QUEUE_KEY = 'strava_pending_sync_queue';
 
-// Default OAuth credentials (can be overridden via SQLite settings)
-const DEFAULT_STRAVA_CLIENT_ID = '123456'; 
-const DEFAULT_STRAVA_CLIENT_SECRET = 'orbit_strava_client_secret';
+// Official Strava OAuth credentials for Orbit
+export const DEFAULT_STRAVA_CLIENT_ID = '275440'; 
+export const DEFAULT_STRAVA_CLIENT_SECRET = '01d7ce81ba6990f580a71c7efc4c43c0fa24dbcf';
+
+/**
+ * Generates the official Strava OAuth 2.0 authorization URL.
+ */
+export function getStravaAuthUrl(): string {
+  const clientId = getSettingSync(STRAVA_CLIENT_ID_KEY, DEFAULT_STRAVA_CLIENT_ID);
+  return `https://www.strava.com/oauth/mobile/authorize?client_id=${clientId}&response_type=code&redirect_uri=orbitapp://strava-callback&approval_prompt=auto&scope=activity:write,activity:read_all,read`;
+}
+
+/**
+ * Exchanges an authorization code for real Strava access & refresh tokens.
+ */
+export async function exchangeStravaAuthCode(
+  code: string,
+  isPremium: boolean
+): Promise<{ success: boolean; error?: string; athleteName?: string }> {
+  try {
+    const clientId = getSettingSync(STRAVA_CLIENT_ID_KEY, DEFAULT_STRAVA_CLIENT_ID);
+    const clientSecret = getSettingSync(STRAVA_CLIENT_SECRET_KEY, DEFAULT_STRAVA_CLIENT_SECRET);
+
+    const response = await fetch('https://www.strava.com/oauth/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_id: clientId,
+        client_secret: clientSecret,
+        code,
+        grant_type: 'authorization_code',
+      }),
+    });
+
+    const data = await response.json();
+    if (response.ok && data.access_token) {
+      const athleteName = `${data.athlete?.firstname || ''} ${data.athlete?.lastname || ''}`.trim() || 'Strava Athlete';
+      const newTokens: StravaAuthTokens = {
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token || '',
+        expiresAt: data.expires_at || Math.floor(Date.now() / 1000) + 21600,
+        athleteId: data.athlete?.id ? String(data.athlete.id) : undefined,
+      };
+
+      saveStravaTokens(newTokens);
+      setStravaAutoSyncEnabled(true, isPremium);
+      return { success: true, athleteName };
+    } else {
+      return {
+        success: false,
+        error: data.message || `Strava authorization failed (${response.status})`,
+      };
+    }
+  } catch (e) {
+    return {
+      success: false,
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
+}
 
 /**
  * Checks if Strava is currently connected with valid or refreshable credentials.
