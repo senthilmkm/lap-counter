@@ -50,6 +50,13 @@ import {
 } from '../services/backgroundTask';
 import * as Speech from 'expo-speech';
 import { getSettingSync, saveSettingSync } from '../services/database';
+import {
+  GhostMode,
+  GhostPacerConfig,
+  GhostPacerState,
+  evaluateGhostPacer,
+  calculateLapTarget,
+} from '../logic/ghostPacer';
 
 const KEEP_AWAKE_TAG = 'lap-counter-session';
 const TICK_INTERVAL_MS = 1000;
@@ -73,6 +80,10 @@ export type StartConfig = {
   mode?: LapMode;
   disableBle?: boolean;
   voiceCuesEnabled?: boolean;
+  ghostMode?: GhostMode;
+  ghostTargetLapSeconds?: number;
+  prLapSeconds?: number;
+  negativeSplitFactor?: number;
 } & Partial<DetectorConfig> &
   Partial<OutdoorDetectorConfig>;
 
@@ -97,6 +108,9 @@ export function useLapCounter() {
   const [gpsPath, setGpsPath] = useState<Array<GeoPoint & { timestamp: number }>>([]);
   const [weatherSuggest, setWeatherSuggest] = useState<{ temp: number; condition: string; code: number } | null>(null);
   const [voiceCuesEnabled, setVoiceCuesEnabled] = useState(() => getSettingSync('voiceCuesEnabled', 'true') === 'true');
+  const [ghostConfig, setGhostConfig] = useState<GhostPacerConfig>({ mode: 'none' });
+  const [ghostState, setGhostState] = useState<GhostPacerState | null>(null);
+  const lastLapTsRef = useRef<number | null>(null);
 
   const handleSetVoiceCuesEnabled = useCallback((val: boolean) => {
     setVoiceCuesEnabled(val);
@@ -455,7 +469,25 @@ export function useLapCounter() {
         return;
       }
 
-      // Gating check: clamp target laps to max 3 on Free tier
+      // Ghost Pacer gating check: PR Ghost & Negative Split require Premium subscription
+      const ghostMode = config?.ghostMode ?? 'none';
+      if (!isPremium && (ghostMode === 'pr_ghost' || ghostMode === 'negative_split')) {
+        errorRef.current = { message: 'PR Ghost Pacer and Negative Splits require an Orbit Pro subscription.' };
+        startingRef.current = false;
+        return;
+      }
+
+      const currentGhostCfg: GhostPacerConfig = {
+        mode: ghostMode,
+        targetLapSeconds: config?.ghostTargetLapSeconds,
+        prLapSeconds: config?.prLapSeconds,
+        negativeSplitFactor: config?.negativeSplitFactor,
+      };
+      setGhostConfig(currentGhostCfg);
+      setGhostState(null);
+      lastLapTsRef.current = Date.now();
+
+      // Gating check: clamp target laps to max 5 on Free tier
       let targetLaps = config?.targetLaps ?? (requestedMode === 'indoor' ? DEFAULT_CONFIG.targetLaps : DEFAULT_OUTDOOR_CONFIG.targetLaps);
       if (!isPremium) {
         targetLaps = Math.min(targetLaps, 5);
@@ -612,6 +644,8 @@ export function useLapCounter() {
     setSessionStartTs(null);
     setSessionEndTs(null);
     setElapsedSeconds(0);
+    lastLapTsRef.current = null;
+    setGhostState(null);
     await teardown();
     await cancelAllNotifications();
     indoorDispatch({ type: 'reset' });
@@ -640,7 +674,7 @@ export function useLapCounter() {
     };
   }, [activeState.phase, sessionStartTs]);
 
-  // After each counted lap (in either mode): zero motion baseline + haptic.
+  // After each counted lap (in either mode): zero motion baseline + haptic + Ghost Coach speech.
   // Triggered by `count` change rather than `lastLapAt` so the haptic
   // fires reliably even when consecutive laps share a `Date.now()` value
   // (which happens in tests using fake timers).
@@ -654,17 +688,37 @@ export function useLapCounter() {
       }
       void lapHaptic();
 
-      // Premium Feature: Hands-Free Voice Splits (TTS)
-      if (isNewLap && voiceCuesEnabled) {
-        const minutes = Math.floor(elapsedSeconds / 60);
-        const seconds = elapsedSeconds % 60;
-        const timeStr = minutes > 0 ? `${minutes} minutes and ${seconds} seconds` : `${seconds} seconds`;
-        Speech.speak(`Lap ${activeState.count} complete. Total time: ${timeStr}.`, {
-          language: 'en',
+      // Ghost Pacer live delta evaluation
+      const now = Date.now();
+      const lapDuration = lastLapTsRef.current ? Math.max(1, Math.round((now - lastLapTsRef.current) / 1000)) : elapsedSeconds;
+      lastLapTsRef.current = now;
+
+      let coachCueText: string | null = null;
+      if (ghostConfig.mode !== 'none') {
+        const evalState = evaluateGhostPacer({
+          lapNumber: activeState.count,
+          lapElapsedSeconds: lapDuration,
+          config: ghostConfig,
         });
+        setGhostState(evalState);
+        coachCueText = evalState.coachCue;
+      }
+
+      // Hands-Free Voice Splits (TTS)
+      if (isNewLap && voiceCuesEnabled) {
+        if (coachCueText) {
+          Speech.speak(coachCueText, { language: 'en' });
+        } else {
+          const minutes = Math.floor(elapsedSeconds / 60);
+          const seconds = elapsedSeconds % 60;
+          const timeStr = minutes > 0 ? `${minutes} minutes and ${seconds} seconds` : `${seconds} seconds`;
+          Speech.speak(`Lap ${activeState.count} complete. Total time: ${timeStr}.`, {
+            language: 'en',
+          });
+        }
       }
     }
-  }, [activeState.count, mode, voiceCuesEnabled, elapsedSeconds]);
+  }, [activeState.count, mode, voiceCuesEnabled, elapsedSeconds, ghostConfig]);
 
   useEffect(() => {
     if (prevPhaseRef.current === 'calibrating' && activeState.phase === 'armed') {
@@ -747,5 +801,10 @@ export function useLapCounter() {
     setVoiceCuesEnabled: handleSetVoiceCuesEnabled,
     pause,
     resume,
+
+    // Ghost Pacer engine states
+    ghostConfig,
+    ghostState,
+    setGhostConfig,
   };
 }

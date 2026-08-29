@@ -27,6 +27,18 @@ import { useSubscription } from './src/state/useSubscription';
 import { exportWorkoutFile, generateGPX, generateCSV, ExporterLap } from './src/services/exporter';
 import { saveWorkout, getWorkouts, getWorkoutPath, DBWorkout, getSettingSync, saveSettingSync, deleteWorkout } from './src/services/database';
 import WorkoutMap from './src/components/WorkoutMap';
+import GhostPacerHUD from './src/components/GhostPacerHUD';
+import ShareableLapCard from './src/components/ShareableLapCard';
+import { GhostMode } from './src/logic/ghostPacer';
+import {
+  uploadWorkoutToStrava,
+  isStravaAutoSyncEnabled,
+  setStravaAutoSyncEnabled,
+  getStravaTokens,
+  saveStravaTokens,
+  disconnectStrava,
+} from './src/services/stravaService';
+import { SocialCardData, shareWorkoutStory } from './src/services/shareService';
 
 const KEEP_AWAKE_TAG = 'lap-counter-session';
 const TICK_INTERVAL_MS = 1000;
@@ -172,10 +184,19 @@ export default function App() {
     setVoiceCuesEnabled,
     pause,
     resume,
+    // Ghost Pacer engine
+    ghostConfig,
+    ghostState,
+    setGhostConfig,
   } = useLapCounter();
 
   const [activeTab, setActiveTab] = useState<'workout' | 'history' | 'analytics' | 'settings'>('workout');
   const [showPaywall, setShowPaywall] = useState(false);
+  const [selectedGhostMode, setSelectedGhostMode] = useState<GhostMode>('none');
+  const [targetLapSeconds, setTargetLapSeconds] = useState<number>(90);
+  const [showSocialCard, setShowSocialCard] = useState(false);
+  const [socialCardData, setSocialCardData] = useState<SocialCardData | null>(null);
+  const [stravaSyncActive, setStravaSyncActive] = useState<boolean>(() => isStravaAutoSyncEnabled());
   const [targetInput, setTargetInput] = useState(() => {
     const saved = getSettingSync('targetLaps', '');
     if (saved) return saved;
@@ -486,12 +507,19 @@ export default function App() {
           setBrokenRecords([]);
         }
 
-        saveWorkout(item, gpsPath).then(() => {
+        saveWorkout(item, gpsPath).then(async () => {
           reloadHistory();
+          // Auto-Sync to Strava if enabled and Pro active
+          if (isPremium && stravaSyncActive) {
+            const stravaRes = await uploadWorkoutToStrava(item, gpsPath, isPremium);
+            if (stravaRes.success) {
+              Alert.alert('Strava Auto-Sync', 'Workout successfully synced to your Strava activity feed! 🚴‍♂️');
+            }
+          }
         });
       }
     }
-  }, [isFinished, sessionStartTs, sessionEndTs, mode, state, gpsPath, historyList, elapsedSeconds, recordMostLaps, recordLongestSession, recordFastestLap, lapTimes]);
+  }, [isFinished, sessionStartTs, sessionEndTs, mode, state, gpsPath, historyList, elapsedSeconds, recordMostLaps, recordLongestSession, recordFastestLap, lapTimes, isPremium, stravaSyncActive]);
 
   const onStart = async () => {
     saveSettingSync('userWeight', weightInput);
@@ -514,6 +542,25 @@ export default function App() {
       return;
     }
 
+    // Gating check: Restrict PR Ghost and Negative Split pacing to Orbit Pro tier
+    if (!isPremium && pricingConfig.features.paywallEnabled && (selectedGhostMode === 'pr_ghost' || selectedGhostMode === 'negative_split')) {
+      setShowPaywall(true);
+      return;
+    }
+
+    const startPayload = {
+      mode,
+      targetLaps: parsed,
+      disableBle,
+      isPremium,
+      voiceCuesEnabled,
+      ghostMode: selectedGhostMode,
+      ghostTargetLapSeconds: targetLapSeconds,
+      prLapSeconds: recordFastestLap < 999999 ? recordFastestLap : 90,
+      gpsModePremiumGated: pricingConfig.features.gpsModePremiumGated,
+      ghostPacerPremiumGated: pricingConfig.features.ghostPacerPremiumGated,
+    };
+
     const isTesting = typeof process !== 'undefined' && process.env.NODE_ENV === 'test';
     if (mode === 'outdoor' && !prewarmLocation && !isTesting) {
       Alert.alert(
@@ -524,28 +571,14 @@ export default function App() {
           {
             text: 'Start Anyway',
             onPress: async () => {
-              await start({ 
-                mode, 
-                targetLaps: parsed, 
-                disableBle, 
-                isPremium, 
-                voiceCuesEnabled, 
-                gpsModePremiumGated: pricingConfig.features.gpsModePremiumGated 
-              });
+              await start(startPayload);
             },
           },
         ]
       );
       return;
     }
-    await start({ 
-      mode, 
-      targetLaps: parsed, 
-      disableBle, 
-      isPremium, 
-      voiceCuesEnabled, 
-      gpsModePremiumGated: pricingConfig.features.gpsModePremiumGated 
-    });
+    await start(startPayload);
   };
 
   const confirmStop = () => {
@@ -704,6 +737,11 @@ export default function App() {
                   isPremium={isPremium}
                   onShowPaywall={() => setShowPaywall(true)}
                   maxFreeLaps={pricingConfig.features.maxFreeLaps}
+                  ghostMode={selectedGhostMode}
+                  onGhostModeChange={setSelectedGhostMode}
+                  ghostTargetSec={targetLapSeconds}
+                  onGhostTargetSecChange={setTargetLapSeconds}
+                  prLapSeconds={recordFastestLap < 999999 ? recordFastestLap : null}
                 />
               )}
 
@@ -728,6 +766,9 @@ export default function App() {
                   distanceMiles={currentSessionDistanceMiles}
                   mapType={mapType}
                   onMapTypeToggle={() => setMapType(prev => prev === 'standard' ? 'satellite' : 'standard')}
+                  ghostMode={selectedGhostMode}
+                  ghostState={ghostState}
+                  targetLapSeconds={targetLapSeconds}
                 />
               )}
 
@@ -760,6 +801,64 @@ export default function App() {
                     const workoutId = `workout_${sessionStartTs}`;
                     const workout = historyList.find((w) => w.id === workoutId);
                     if (workout) handleTextShare(workout);
+                  }}
+                  onShowSocialCard={() => {
+                    const workoutId = `workout_${sessionStartTs}`;
+                    let workout = historyList.find((w) => w.id === workoutId);
+                    if (!workout) {
+                      workout = {
+                        id: workoutId,
+                        startTime: sessionStartTs || Date.now(),
+                        endTime: sessionEndTs || Date.now(),
+                        mode,
+                        totalLaps: state.count,
+                        steps: mode === 'indoor' ? (state as DetectorState).steps || 0 : 0,
+                        cadence: 160,
+                        strideLength: 0.75,
+                        yawDrift: 0,
+                      };
+                    }
+                    const durSec = Math.max(1, elapsedSeconds);
+                    const splits: number[] = [];
+                    if (lapTimes.length > 0) {
+                      let prev = 0;
+                      for (const t of lapTimes) {
+                        splits.push(t - prev);
+                        prev = t;
+                      }
+                    } else if (state.count > 0) {
+                      const avg = Math.round(durSec / state.count);
+                      for (let i = 0; i < state.count; i++) splits.push(avg);
+                    }
+                    setSocialCardData({
+                      workout,
+                      formattedDuration: formatDuration(durSec),
+                      calories: currentSessionCalories,
+                      fastestLapFormatted: recordFastestLap < 999999 ? formatDuration(recordFastestLap) : undefined,
+                      lapSplits: splits,
+                      brokenRecords,
+                      distanceMiles: currentSessionDistanceMiles,
+                    });
+                    setShowSocialCard(true);
+                  }}
+                  onSyncStrava={async () => {
+                    const workoutId = `workout_${sessionStartTs}`;
+                    const workout = historyList.find((w) => w.id === workoutId);
+                    if (workout) {
+                      if (!isPremium) {
+                        setShowPaywall(true);
+                        return;
+                      }
+                      const rawPath = getWorkoutPath(workout.id);
+                      const res = await uploadWorkoutToStrava(workout, rawPath, isPremium);
+                      if (res.success) {
+                        Alert.alert('Strava Sync', 'Workout successfully uploaded to your Strava feed! 🚴‍♂️');
+                      } else if (res.paywallRequired) {
+                        setShowPaywall(true);
+                      } else {
+                        Alert.alert('Strava Sync', res.error || 'Failed to upload to Strava.');
+                      }
+                    }
                   }}
                 />
               )}
@@ -925,6 +1024,15 @@ export default function App() {
               outdoorState={mode === 'outdoor' ? state as OutdoorDetectorState : null}
               debugLogs={debugLogs}
               onShowInfoModal={() => setShowInfoModal(true)}
+              stravaAutoSyncActive={stravaSyncActive}
+              onStravaAutoSyncToggle={(val) => {
+                if (!isPremium) {
+                  setShowPaywall(true);
+                  return;
+                }
+                setStravaAutoSyncEnabled(val, isPremium);
+                setStravaSyncActive(val);
+              }}
             />
           )}
 
@@ -997,8 +1105,8 @@ export default function App() {
               <View style={styles.modalContent}>
                 <ScrollView style={styles.modalScrollView} contentContainerStyle={styles.modalScrollViewContent} showsVerticalScrollIndicator={false}>
                   <Text style={styles.modalEmoji}>👑</Text>
-                  <Text style={styles.modalTitle}>Unlock Premium Tier</Text>
-                  <Text style={styles.modalSubtitle}>Unlock world-class fitness tracking features.</Text>
+                  <Text style={styles.modalTitle}>Unlock Orbit Pro</Text>
+                  <Text style={styles.modalSubtitle}>Unlock world-class fitness tracking & coaching features.</Text>
                   
                   {pricingConfig.announcements.freeTier.show && (
                     <View style={styles.tierAnnouncementBanner}>
@@ -1007,12 +1115,12 @@ export default function App() {
                   )}
 
                   <View style={styles.benefitsList}>
-                    <Text style={styles.benefitItem}>⭐ **Unlimited Laps**: Remove the 5-lap limit on indoor workouts.</Text>
-                    <Text style={styles.benefitItem}>⭐ **Outdoor GPS Mode**: Unlock live tracking map and Continuous Pre-Warming locks.</Text>
-                    <Text style={styles.benefitItem}>🔜 **Live Beacon Telecast** (Coming Soon): Generate a shareable map link to broadcast your GPS run live to spectators.</Text>
-                    <Text style={styles.benefitItem}>⭐ **Advanced Analytics**: Cadence, stride estimation, and relative drift graphs.</Text>
-                    <Text style={styles.benefitItem}>⭐ **Background Session Tracking**: Count laps while screen is turned off.</Text>
-                    <Text style={styles.benefitItem}>⭐ **Unlimited History & Exports**: Keep all sessions and export CSV/GPX files.</Text>
+                    <Text style={styles.benefitItem}>👻 **Ghost Pacer (PR Ghosting)**: Race your historical best lap with live in-ear audio cues (*"1.4s ahead of PR"*).</Text>
+                    <Text style={styles.benefitItem}>📈 **Negative Split Strategy**: Progressive pacing to build endurance and speed.</Text>
+                    <Text style={styles.benefitItem}>☁️ **Strava Cloud Auto-Sync**: Hands-free automatic upload to Strava + GPX/FIT exports.</Text>
+                    <Text style={styles.benefitItem}>⭐ **Unlimited Laps**: Remove the 5-lap limit on indoor and outdoor workouts.</Text>
+                    <Text style={styles.benefitItem}>⭐ **Advanced Biometrics Analytics**: Cadence consistency, stride estimation, and relative drift graphs.</Text>
+                    <Text style={styles.benefitItem}>⭐ **Background Session Tracking**: Count laps seamlessly while screen is turned off.</Text>
                   </View>
 
                   {pricingConfig.tiers.annual.enabled && (
@@ -1173,13 +1281,79 @@ export default function App() {
                       </View>
                     </View>
 
+                    {/* Free Viral Social Story Card Share */}
+                    <Pressable
+                      onPress={() => {
+                        const durSec = Math.max(1, Math.round((selectedWorkout.endTime - selectedWorkout.startTime) / 1000));
+                        const avg = Math.round(durSec / Math.max(1, selectedWorkout.totalLaps));
+                        const splits: number[] = [];
+                        for (let i = 0; i < selectedWorkout.totalLaps; i++) splits.push(avg);
+
+                        let distMiles = 0;
+                        if (selectedWorkout.mode === 'outdoor') {
+                          let distM = 0;
+                          for (let i = 1; i < selectedWorkoutPath.length; i++) {
+                            distM += haversineDistance(selectedWorkoutPath[i - 1], selectedWorkoutPath[i]);
+                          }
+                          distMiles = distM / 1609.34;
+                        }
+
+                        const cals = estimateCalories({
+                          mode: selectedWorkout.mode,
+                          steps: selectedWorkout.steps,
+                          durationSeconds: durSec,
+                          weightLbs: parsedWeight,
+                          strideLengthMeters: selectedWorkout.strideLength,
+                          gpsDistanceMeters: selectedWorkout.mode === 'outdoor' ? distMiles * 1609.34 : undefined,
+                        });
+
+                        setSocialCardData({
+                          workout: selectedWorkout,
+                          formattedDuration: formatDuration(durSec),
+                          calories: cals,
+                          fastestLapFormatted: recordFastestLap < 999999 ? formatDuration(recordFastestLap) : undefined,
+                          lapSplits: splits,
+                          brokenRecords: [],
+                          distanceMiles: distMiles > 0 ? distMiles : undefined,
+                        });
+                        setShowSocialCard(true);
+                      }}
+                      style={[styles.exportItemBtn, { backgroundColor: '#8b5cf6', marginTop: 14, width: '100%' }]}
+                    >
+                      <Text style={styles.exportItemBtnText}>📲 Generate Social Story Card (Free)</Text>
+                    </Pressable>
+
+                    {/* Strava 1-Tap Sync Button (Pro Gated) */}
+                    <Pressable
+                      onPress={async () => {
+                        if (!isPremium) {
+                          setSelectedWorkout(null);
+                          setShowPaywall(true);
+                          return;
+                        }
+                        const rawPath = getWorkoutPath(selectedWorkout.id);
+                        const res = await uploadWorkoutToStrava(selectedWorkout, rawPath, isPremium);
+                        if (res.success) {
+                          Alert.alert('Strava Sync', 'Workout successfully synced to your Strava activity feed! 🚴‍♂️');
+                        } else if (res.paywallRequired) {
+                          setSelectedWorkout(null);
+                          setShowPaywall(true);
+                        } else {
+                          Alert.alert('Strava Sync', res.error || 'Failed to upload workout to Strava.');
+                        }
+                      }}
+                      style={[styles.exportItemBtn, { backgroundColor: '#fc4c02', marginTop: 8, width: '100%' }]}
+                    >
+                      <Text style={styles.exportItemBtnText}>{isPremium ? '🟠 Upload to Strava' : '👑 Unlock Strava Cloud Sync'}</Text>
+                    </Pressable>
+
                     {isPremium ? (
                       <View style={styles.modalActionExportRow}>
                         <Pressable onPress={() => handleExportCSV(selectedWorkout)} style={styles.exportItemBtn}>
                           <Text style={styles.exportItemBtnText}>CSV Export</Text>
                         </Pressable>
                         {selectedWorkout.mode === 'outdoor' && (
-                          <Pressable onPress={() => handleExportGPX(selectedWorkout)} style={[styles.exportItemBtn, { backgroundColor: '#8b5cf6' }]}>
+                          <Pressable onPress={() => handleExportGPX(selectedWorkout)} style={[styles.exportItemBtn, { backgroundColor: '#0284c7' }]}>
                             <Text style={styles.exportItemBtnText}>GPX Export</Text>
                           </Pressable>
                         )}
@@ -1214,6 +1388,15 @@ export default function App() {
                 </View>
               </View>
             </Modal>
+          )}
+
+          {/* Social Story Card Preview & Share Modal */}
+          {socialCardData && (
+            <ShareableLapCard
+              visible={showSocialCard}
+              onClose={() => setShowSocialCard(false)}
+              data={socialCardData}
+            />
           )}
 
         </KeyboardAvoidingView>
@@ -1302,6 +1485,11 @@ function SetupCard(props: {
   isPremium: boolean;
   onShowPaywall: () => void;
   maxFreeLaps: number;
+  ghostMode: GhostMode;
+  onGhostModeChange: (mode: GhostMode) => void;
+  ghostTargetSec: number;
+  onGhostTargetSecChange: (sec: number) => void;
+  prLapSeconds: number | null;
 }) {
   let gpsStatusComponent = null;
   if (props.mode === 'outdoor') {
@@ -1376,6 +1564,93 @@ function SetupCard(props: {
         )}
       </View>
 
+      {/* SECTION 2: GHOST PACER STRATEGY */}
+      <View style={styles.setupSection}>
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.setupSectionTitle}>👻 Ghost Pacer Strategy</Text>
+          <Pressable
+            onPress={() => Alert.alert(
+              'Ghost Pacer Guide',
+              'Race against your personal record (PR), a fixed target pace, or negative split strategies.\n\n• Target Pacer (Free): Follow a steady lap target.\n• PR Ghost (👑 Pro): Compete against your best historic lap with live in-ear audio split deltas.\n• Negative Split (👑 Pro): Paces each consecutive lap progressively faster.'
+            )}
+            style={{ padding: 4 }}
+          >
+            <Text style={{ fontSize: 16, color: '#38bdf8' }}>ℹ️</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.ghostPickerRow}>
+          <Pressable
+            onPress={() => props.onGhostModeChange('none')}
+            style={[styles.ghostOptionBtn, props.ghostMode === 'none' && styles.ghostOptionActive]}
+          >
+            <Text style={[styles.ghostOptionText, props.ghostMode === 'none' && styles.ghostOptionTextActive]}>Off</Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => props.onGhostModeChange('manual_target')}
+            style={[styles.ghostOptionBtn, props.ghostMode === 'manual_target' && styles.ghostOptionActive]}
+          >
+            <Text style={[styles.ghostOptionText, props.ghostMode === 'manual_target' && styles.ghostOptionTextActive]}>🎯 Target</Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => {
+              if (!props.isPremium) {
+                props.onShowPaywall();
+              } else {
+                props.onGhostModeChange('pr_ghost');
+              }
+            }}
+            style={[styles.ghostOptionBtn, props.ghostMode === 'pr_ghost' && styles.ghostOptionActive, !props.isPremium && styles.ghostOptionLocked]}
+          >
+            <Text style={[styles.ghostOptionText, props.ghostMode === 'pr_ghost' && styles.ghostOptionTextActive]}>
+              👑 PR Ghost
+            </Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => {
+              if (!props.isPremium) {
+                props.onShowPaywall();
+              } else {
+                props.onGhostModeChange('negative_split');
+              }
+            }}
+            style={[styles.ghostOptionBtn, props.ghostMode === 'negative_split' && styles.ghostOptionActive, !props.isPremium && styles.ghostOptionLocked]}
+          >
+            <Text style={[styles.ghostOptionText, props.ghostMode === 'negative_split' && styles.ghostOptionTextActive]}>
+              👑 Negative
+            </Text>
+          </Pressable>
+        </View>
+
+        {props.ghostMode === 'pr_ghost' && (
+          <Text style={styles.ghostHintText}>
+            🔥 Racing against your PR: {props.prLapSeconds ? formatDuration(props.prLapSeconds) : '1:30'}/lap
+          </Text>
+        )}
+        {props.ghostMode === 'manual_target' && (
+          <View style={styles.ghostTargetInputRow}>
+            <Text style={styles.ghostTargetLabel}>Target seconds / lap:</Text>
+            <TextInput
+              value={String(props.ghostTargetSec)}
+              onChangeText={(v) => props.onGhostTargetSecChange(parseInt(v, 10) || 90)}
+              keyboardType="number-pad"
+              style={styles.ghostInput}
+              placeholder="90"
+              placeholderTextColor="#6b7280"
+              maxLength={3}
+            />
+          </View>
+        )}
+        {props.ghostMode === 'negative_split' && (
+          <Text style={styles.ghostHintText}>
+            📈 Progressive strategy: 2% faster on each subsequent lap!
+          </Text>
+        )}
+      </View>
+
       {gpsStatusComponent}
 
       <Pressable
@@ -1436,6 +1711,9 @@ function RunningCard(props: {
   distanceMiles: number;
   mapType: 'standard' | 'satellite';
   onMapTypeToggle: () => void;
+  ghostMode?: GhostMode;
+  ghostState?: any;
+  targetLapSeconds?: number;
 }) {
   const walkAnim = useRef(new Animated.Value(0)).current;
 
@@ -1503,6 +1781,17 @@ function RunningCard(props: {
       <Text style={styles.progressLabel}>
         {Math.round(props.progressPct * 100)}%
       </Text>
+
+      {/* Ghost Pacer Live HUD */}
+      {props.ghostMode && props.ghostMode !== 'none' && (
+        <GhostPacerHUD
+          ghostMode={props.ghostMode}
+          ghostState={props.ghostState}
+          lapElapsedSeconds={props.elapsedSeconds}
+          currentLap={props.count}
+          targetLapSeconds={props.targetLapSeconds}
+        />
+      )}
 
       <View style={styles.statsRow}>
         <View style={styles.statBox}>
@@ -1612,6 +1901,8 @@ function FinishedCard(props: {
   distanceMiles: number;
   brokenRecords: string[];
   onTextShare: () => void;
+  onShowSocialCard: () => void;
+  onSyncStrava: () => void;
 }) {
   return (
     <View style={styles.card}>
@@ -1683,13 +1974,29 @@ function FinishedCard(props: {
         )}
       </View>
 
+      {/* Free Viral Social Story Card Generator */}
+      <Pressable
+        onPress={props.onShowSocialCard}
+        style={[styles.exportBtn, { backgroundColor: '#8b5cf6', marginTop: 12, width: '100%' }]}
+      >
+        <Text style={styles.exportBtnText}>📲 Generate Social Story Card (Free)</Text>
+      </Pressable>
+
+      {/* Strava 1-Tap Cloud Sync (Pro Gated) */}
+      <Pressable
+        onPress={props.onSyncStrava}
+        style={[styles.exportBtn, { backgroundColor: '#fc4c02', marginTop: 8, width: '100%' }]}
+      >
+        <Text style={styles.exportBtnText}>{props.isPremium ? '🟠 Upload to Strava' : '👑 Unlock Strava Cloud Sync'}</Text>
+      </Pressable>
+
       {/* Exporter triggers for premium tier */}
       {props.isPremium ? (
         <View style={styles.row}>
           <Pressable onPress={props.onExportCSV} style={styles.exportBtn}>
             <Text style={styles.exportBtnText}>CSV Export</Text>
           </Pressable>
-          <Pressable onPress={props.onExportGPX} style={[styles.exportBtn, { backgroundColor: '#8b5cf6' }]}>
+          <Pressable onPress={props.onExportGPX} style={[styles.exportBtn, { backgroundColor: '#0284c7' }]}>
             <Text style={styles.exportBtnText}>GPX Export</Text>
           </Pressable>
         </View>
@@ -1701,7 +2008,7 @@ function FinishedCard(props: {
 
       {/* Native Share Workout Summary */}
       <Pressable onPress={props.onTextShare} style={[styles.exportBtn, { backgroundColor: '#0ea5e9', marginTop: 8, width: '100%' }]}>
-        <Text style={styles.exportBtnText}>💬 Share Workout Summary</Text>
+        <Text style={styles.exportBtnText}>💬 Share Workout Summary Text</Text>
       </Pressable>
 
       <Pressable
@@ -1892,6 +2199,8 @@ function SettingsScreen(props: {
   outdoorState: OutdoorDetectorState | null;
   debugLogs: string[];
   onShowInfoModal: () => void;
+  stravaAutoSyncActive: boolean;
+  onStravaAutoSyncToggle: (v: boolean) => void;
 }) {
   const appVersion = '1.0.0';
   const subLabel = props.subTier === 'annual' ? '👑 Annual Premium'
@@ -1941,6 +2250,29 @@ function SettingsScreen(props: {
         <Pressable onPress={props.onShowInfoModal} style={styles.infoLinkBtn}>
           <Text style={styles.infoLinkText}>ℹ️ How is calorie burn calculated?</Text>
         </Pressable>
+      </View>
+
+      {/* CLOUD INTEGRATIONS */}
+      <View style={styles.card}>
+        <Text style={styles.settingsSectionTitle}>☁️ Integrations & Cloud Sync</Text>
+        <View style={styles.toggleRow}>
+          <View style={{ flex: 1, marginRight: 8 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={styles.toggleLabel}>Strava Cloud Auto-Sync</Text>
+              <View style={styles.proPillBadge}>
+                <Text style={styles.proPillText}>PRO</Text>
+              </View>
+            </View>
+            <Text style={styles.settingsDescription}>
+              Auto-upload completed sessions and splits to Strava.
+            </Text>
+          </View>
+          <Switch
+            value={props.stravaAutoSyncActive}
+            onValueChange={props.onStravaAutoSyncToggle}
+            trackColor={{ true: '#fc4c02', false: '#374151' }}
+          />
+        </View>
       </View>
 
       {/* WEATHER UNIT */}
@@ -3325,5 +3657,93 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     textAlign: 'center',
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  ghostPickerRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+  },
+  ghostOptionBtn: {
+    flex: 1,
+    backgroundColor: '#030712',
+    borderWidth: 1,
+    borderColor: '#374151',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ghostOptionActive: {
+    backgroundColor: 'rgba(139, 92, 246, 0.2)',
+    borderColor: '#8b5cf6',
+  },
+  ghostOptionLocked: {
+    opacity: 0.85,
+  },
+  ghostOptionText: {
+    color: '#94a3b8',
+    fontSize: 12,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  ghostOptionTextActive: {
+    color: '#a78bfa',
+    fontWeight: '700',
+  },
+  ghostHintText: {
+    color: '#94a3b8',
+    fontSize: 12,
+    marginTop: 8,
+    fontStyle: 'italic',
+  },
+  ghostTargetInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 8,
+    backgroundColor: '#030712',
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#1f2937',
+  },
+  ghostTargetLabel: {
+    color: '#cbd5e1',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  ghostInput: {
+    backgroundColor: '#111827',
+    borderWidth: 1,
+    borderColor: '#374151',
+    borderRadius: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+    color: '#38bdf8',
+    fontWeight: '700',
+    fontSize: 14,
+    textAlign: 'center',
+    width: 70,
+  },
+  proPillBadge: {
+    backgroundColor: 'rgba(236, 72, 153, 0.2)',
+    borderWidth: 1,
+    borderColor: '#ec4899',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  proPillText: {
+    color: '#f472b6',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
 });

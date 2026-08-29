@@ -5,7 +5,9 @@
     "gpsModePremiumGated": false,
     "analyticsPremiumGated": true,
     "backgroundTaskPremiumGated": true,
-    "exportsPremiumGated": true
+    "exportsPremiumGated": true,
+    "ghostPacerPremiumGated": true,
+    "stravaSyncPremiumGated": true
   },
   "announcements": {
     "global": {
@@ -13,11 +15,11 @@
       "show": true
     },
     "freeTier": {
-      "message": "Unlock Premium today to access unlimited laps, live GPS maps, and advanced cadence analytics!",
+      "message": "Unlock Orbit Pro to access Ghost Pacer against your PR, Strava Cloud Auto-Sync, and unlimited laps!",
       "show": true
     },
     "premiumMonthly": {
-      "message": "Thank you for supporting us on the Monthly plan! Check out our new outdoor run metrics.",
+      "message": "Thank you for supporting us on the Monthly plan! Ghost Pacer & Strava Sync are now active.",
       "show": false
     },
     "premiumAnnual": {
