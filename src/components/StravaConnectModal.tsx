@@ -251,9 +251,9 @@ export default function StravaConnectModal({
       startTime: Date.now() - 600000,
       endTime: Date.now(),
       mode: 'outdoor' as const,
-      totalLaps: 3,
-      steps: 1200,
-      cadence: 162,
+      totalLaps: 4,
+      steps: 1600,
+      cadence: 165,
       strideLength: 1.05,
       yawDrift: 0.2,
     };

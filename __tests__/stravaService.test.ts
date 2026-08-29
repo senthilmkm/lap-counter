@@ -89,4 +89,13 @@ describe('Strava Service & Pro Subscription Gating', () => {
     expect(isWorkoutSyncedToStrava('workout_synced_100')).toBe(true);
     expect(getSyncedWorkoutIds()).toContain('workout_synced_100');
   });
+
+  it('handles offline queue and error handling gracefully', async () => {
+    // When Strava is disconnected, uploading returns an error and queues for sync
+    disconnectStrava();
+    const res = await uploadWorkoutToStrava(dummyWorkout, [], true);
+    expect(res.success).toBe(false);
+    expect(res.error).toContain('not connected');
+    expect(getPendingSyncWorkouts()).toContain(dummyWorkout.id);
+  });
 });

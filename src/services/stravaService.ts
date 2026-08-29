@@ -50,6 +50,41 @@ export function getStravaAuthUrl(): string {
 }
 
 /**
+ * Formats Strava API error responses into crystal-clear, user-friendly error messages.
+ */
+function formatStravaError(status: number, data: any): string {
+  if (!data) return `Strava API returned HTTP status ${status}`;
+
+  if (data.errors && Array.isArray(data.errors) && data.errors.length > 0) {
+    const details = data.errors
+      .map((e: any) => (e.field ? `${e.field}: ${e.code || 'missing/invalid'}` : e.message || 'error'))
+      .join(', ');
+    if (data.message) {
+      if (data.message.toLowerCase().includes('authorization error')) {
+        return 'Authorization Error: Please reconnect with Strava to grant write permissions.';
+      }
+      return `${data.message} (${details})`;
+    }
+    return details;
+  }
+
+  if (data.message) {
+    if (data.message.toLowerCase().includes('authorization error')) {
+      return 'Authorization Error: Please reconnect with Strava to grant write permissions.';
+    }
+    return data.message;
+  }
+
+  if (status === 401 || status === 403) {
+    return 'Strava authorization expired or missing write permissions. Please reconnect your account.';
+  }
+  if (status === 429) {
+    return 'Strava upload rate limit reached. Your workout is queued and will sync automatically in a few minutes.';
+  }
+  return `Strava request failed with HTTP ${status}`;
+}
+
+/**
  * Exchanges an authorization code for real Strava access & refresh tokens.
  */
 export async function exchangeStravaAuthCode(
@@ -71,8 +106,8 @@ export async function exchangeStravaAuthCode(
       }),
     });
 
-    const data = await response.json();
-    if (response.ok && data.access_token) {
+    const data = await response.json().catch(() => null);
+    if (response.ok && data?.access_token) {
       const athleteName = `${data.athlete?.firstname || ''} ${data.athlete?.lastname || ''}`.trim() || 'Strava Athlete';
       const newTokens: StravaAuthTokens = {
         accessToken: data.access_token,
@@ -87,7 +122,7 @@ export async function exchangeStravaAuthCode(
     } else {
       return {
         success: false,
-        error: data.message || `Strava authorization failed (${response.status})`,
+        error: formatStravaError(response.status, data),
       };
     }
   } catch (e) {
@@ -311,8 +346,8 @@ export async function verifyStravaConnection(): Promise<{
 
       return { valid: true, athleteName, athleteId };
     } else {
-      const err = await res.json().catch(() => ({ message: res.statusText }));
-      return { valid: false, error: err.message || `Strava verification failed (${res.status})` };
+      const err = await res.json().catch(() => null);
+      return { valid: false, error: formatStravaError(res.status, err) };
     }
   } catch (e) {
     return { valid: false, error: e instanceof Error ? e.message : String(e) };
@@ -440,11 +475,11 @@ export async function uploadWorkoutToStrava(
         activityId: String(actData.id),
       };
     } else {
-      const errData = await directRes.json().catch(() => ({ message: directRes.statusText }));
+      const errData = await directRes.json().catch(() => null);
       markWorkoutPendingSync(workout.id);
       return {
         success: false,
-        error: errData.message || `Strava upload returned status ${directRes.status}`,
+        error: formatStravaError(directRes.status, errData),
       };
     }
   } catch (e) {
