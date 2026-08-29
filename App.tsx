@@ -2088,7 +2088,7 @@ function MetricsInfoModal(props: {
             </View>
 
             <View style={styles.infoSection}>
-              <Text style={styles.infoSecTitle}>💾 Offline Resiliency & Cloud Sync</Text>
+              <Text style={styles.infoSecTitle}>💾 Offline Resiliency & Strava Sync</Text>
               <Text style={styles.infoSecDesc}>
                 Every workout session, lap split, and GPS coordinate is saved locally into your device's high-speed SQLite database before any network call. If you train in remote areas, indoor basements, or airplane mode without cellular data:
               </Text>
@@ -2262,13 +2262,13 @@ function SettingsScreen(props: {
         </Pressable>
       </View>
 
-      {/* CLOUD INTEGRATIONS */}
+      {/* CONNECTED APPS & STRAVA */}
       <View style={styles.card}>
-        <Text style={styles.settingsSectionTitle}>☁️ Integrations & Cloud Sync</Text>
+        <Text style={styles.settingsSectionTitle}>🔗 Connected Apps & Strava</Text>
         <View style={styles.toggleRow}>
           <View style={{ flex: 1, marginRight: 8 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Text style={styles.toggleLabel}>Strava Cloud Auto-Sync</Text>
+              <Text style={styles.toggleLabel}>Strava Auto-Sync</Text>
               <View style={styles.proPillBadge}>
                 <Text style={styles.proPillText}>PRO</Text>
               </View>
