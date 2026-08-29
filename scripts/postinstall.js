@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-// 1. Completely rewrite ExpoModulesJSI Package.swift with 100% valid Swift 5/6 SPM manifest
+// 1. Completely rewrite ExpoModulesJSI Package.swift with 100% valid Swift 6 SPM manifest
 const cleanExpoModulesJSIPackageSwift = `// swift-tools-version: 6.0
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
@@ -80,8 +80,10 @@ let package = Package(
           "-clang-header-expose-decls=has-expose-attr",
           "-Xcc", "-fmodule-map-file=\\(generatedModuleMap)",
           "-Xcc", "-iapinotes-modules",
-          "-Xcc", apiNotesPath
+          "-Xcc", apiNotesPath,
+          "-enable-bare-slash-regex"
         ]),
+        .enableExperimentalFeature("NonescapableTypes"),
         .unsafeFlags(swiftIncludeFlags)
       ],
       linkerSettings: [
@@ -106,7 +108,7 @@ let package = Package(
       dependencies: testFrameworks.dependencies
     )
   ] + testFrameworks.binaryTargets,
-  swiftLanguageModes: [.v5],
+  swiftLanguageModes: [.v6],
   cxxLanguageStandard: .cxx20
 )
 
@@ -143,7 +145,7 @@ func resolveTestFrameworks() -> (binaryTargets: [Target], dependencies: [Target.
 const packageSwiftPath = path.join(__dirname, '..', 'node_modules', 'expo-modules-jsi', 'apple', 'Package.swift');
 if (fs.existsSync(packageSwiftPath)) {
   fs.writeFileSync(packageSwiftPath, cleanExpoModulesJSIPackageSwift, 'utf8');
-  console.log('✅ Rewrote ExpoModulesJSI Package.swift with pristine Swift 5/6 manifest');
+  console.log('✅ Rewrote ExpoModulesJSI Package.swift with pristine Swift 6 manifest');
 }
 
 // 2. Patch any other Package.swift files in node_modules
@@ -169,7 +171,7 @@ if (fs.existsSync(buildXcframeworkPath)) {
   }
 }
 
-// 4. Swift source patcher
+// 4. Swift source patcher (idempotent)
 function patchSwiftFiles(dir) {
   if (!fs.existsSync(dir)) return;
   const entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -187,51 +189,60 @@ function patchSwiftFiles(dir) {
         modified = true;
       }
 
-      // Fix Sendable mutable weak references
+      // Fix Sendable mutable weak references idempotently
       if (entry.name === 'HostFunctionContext.swift' || entry.name === 'HostObjectContext.swift') {
-        if (content.includes(': Sendable {')) {
+        if (content.includes('class HostFunctionContext: Sendable') || content.includes('class HostObjectContext: Sendable')) {
           content = content.replace(/: Sendable \{/g, ': @unchecked Sendable {');
           modified = true;
         }
       }
 
-      if (entry.name === 'JavaScriptPropNameID.swift') {
-        if (content.includes('private weak var runtime: JavaScriptRuntime?')) {
-          content = content.replace('private weak var runtime: JavaScriptRuntime?', 'nonisolated(unsafe) private weak var runtime: JavaScriptRuntime?');
+      if (entry.name === 'JavaScriptPropNameID.swift' || entry.name === 'JavaScriptError.swift' || entry.name === 'JavaScriptValue.swift') {
+        // Clean out duplicate nonisolated(unsafe)
+        content = content.replace(/(?:nonisolated\(unsafe\)\s+)+/g, 'nonisolated(unsafe) ');
+        if (content.includes('private weak var runtime:') && !content.includes('nonisolated(unsafe) private weak var runtime:')) {
+          content = content.replace('private weak var runtime:', 'nonisolated(unsafe) private weak var runtime:');
           modified = true;
         }
-      }
-
-      if (entry.name === 'JavaScriptError.swift') {
-        if (content.includes('private weak var runtime: JavaScriptRuntime?')) {
-          content = content.replace('private weak var runtime: JavaScriptRuntime?', 'nonisolated(unsafe) private weak var runtime: JavaScriptRuntime?');
-          modified = true;
-        }
-      }
-
-      if (entry.name === 'JavaScriptValue.swift') {
-        if (content.includes('internal weak var runtime: JavaScriptRuntime?')) {
-          content = content.replace('internal weak var runtime: JavaScriptRuntime?', 'nonisolated(unsafe) internal weak var runtime: JavaScriptRuntime?');
+        if (content.includes('internal weak var runtime:') && !content.includes('nonisolated(unsafe) internal weak var runtime:')) {
+          content = content.replace('internal weak var runtime:', 'nonisolated(unsafe) internal weak var runtime:');
           modified = true;
         }
       }
 
       // Fix Task+immediate
       if (entry.name === 'Task+immediate.swift') {
-        if (content.includes('Task.immediate(')) {
-          content = content.replace(/if #available[\s\S]*?return Task\(priority: \.high, operation: operation\)[\s\S]*?\}/g, 'return Task(priority: priority ?? .high, operation: operation)');
-          modified = true;
-        }
-        if (content.includes('sending @escaping @isolated(any)')) {
-          content = content.replace('sending @escaping @isolated(any)', '@escaping');
+        const cleanTaskImmediate = `import Foundation
+
+extension Task where Failure == any Error {
+  public static func immediate(
+    priority: TaskPriority? = nil,
+    @_inheritActorContext operation: @escaping () async throws -> Success
+  ) -> Task<Success, any Error> {
+    return Task(priority: priority ?? .high, operation: operation)
+  }
+}
+`;
+        if (content !== cleanTaskImmediate) {
+          content = cleanTaskImmediate;
           modified = true;
         }
       }
 
-      // Fix push_back
-      if (content.includes('vector.push_back(consuming: propNameId)')) {
-        content = content.replace('vector.push_back(consuming: propNameId)', 'vector.push_back(propNameId)');
-        modified = true;
+      // Fix JavaScriptActor.swift runIsolated isolation boundary
+      if (entry.name === 'JavaScriptActor.swift') {
+        if (content.includes('@JavaScriptActor\n  @usableFromInline\n  internal static func runIsolated')) {
+          content = content.replace('@JavaScriptActor\n  @usableFromInline\n  internal static func runIsolated', '@usableFromInline\n  internal static func runIsolated');
+          modified = true;
+        }
+      }
+
+      // Fix JavaScriptPromise.swift LongLivedState isolation
+      if (entry.name === 'JavaScriptPromise.swift') {
+        if (content.includes('@JavaScriptActor\n  private final class LongLivedState')) {
+          content = content.replace('@JavaScriptActor\n  private final class LongLivedState', 'private final class LongLivedState: @unchecked Sendable');
+          modified = true;
+        }
       }
 
       if (modified) {
@@ -392,7 +403,7 @@ public:
   using Context = void *_Nonnull;
   using Deallocator = void(Context);
 
-  explicit RetainedSwiftPointer(Context context, Deallocator deallocator) : _context(context), _deallocator(std::move(deallocator)) {}
+  RetainedSwiftPointer(Context context, Deallocator deallocator) : _context(context), _deallocator(std::move(deallocator)) {}
 
   virtual ~RetainedSwiftPointer() = default;
 
@@ -423,7 +434,7 @@ class HostFunctionClosure final : public RetainedSwiftPointer {
 public:
   using Closure = facebook::jsi::Value(Context context, const facebook::jsi::Value *_Nonnull thisValue, const facebook::jsi::Value *_Nonnull args, size_t count);
 
-  explicit HostFunctionClosure(Context context, Closure closure, Deallocator deallocator) : RetainedSwiftPointer(context, deallocator), _closure(closure) {};
+  HostFunctionClosure(Context context, Closure closure, Deallocator deallocator) : RetainedSwiftPointer(context, deallocator), _closure(closure) {};
 
   virtual ~HostFunctionClosure() {
     _deallocator(_context);
@@ -452,7 +463,6 @@ private:
     if (!jsiContent.includes('SwiftBridging.h')) {
       jsiContent = jsiContent.replace('#pragma once', '#pragma once\n\n#include "SwiftBridging.h"');
     }
-    // Fix tryBorrowMutableBuffer and releaseBorrowedBuffer #if/#endif
     if (jsiContent.includes('tryBorrowMutableBuffer') && !jsiContent.includes('#else\n  return {nullptr, 0, nullptr};\n#endif')) {
       jsiContent = jsiContent.replace(
         /return \{data, size, retained\};\n\}/g,
@@ -467,20 +477,80 @@ private:
     console.log('✅ Patched JSIUtils.h with complete #if/#endif blocks');
   }
 
-  // Fix RuntimeScheduler.h
+  // Exact clean RuntimeScheduler.h
   const runtimeSchedulerPath = path.join(includeDir, 'RuntimeScheduler.h');
-  if (fs.existsSync(runtimeSchedulerPath)) {
-    let schedContent = fs.readFileSync(runtimeSchedulerPath, 'utf8');
-    if (!schedContent.includes('SwiftBridging.h')) {
-      schedContent = schedContent.replace('#ifdef __cplusplus', '#ifdef __cplusplus\n\n#include "SwiftBridging.h"');
-    }
-    if (!schedContent.includes('SWIFT_RETURNS_RETAINED RuntimeScheduler(')) {
-      schedContent = schedContent.replace(/(\s+)RuntimeScheduler\(void \*scheduler/g, '$1SWIFT_RETURNS_RETAINED RuntimeScheduler(void *scheduler');
-      schedContent = schedContent.replace(/(\s+)RuntimeScheduler\(\)\s*\{\}/g, '$1SWIFT_RETURNS_RETAINED RuntimeScheduler() {}');
-    }
-    fs.writeFileSync(runtimeSchedulerPath, schedContent, 'utf8');
-    console.log('✅ Patched RuntimeScheduler.h');
+  const cleanRuntimeScheduler = `#pragma once
+
+#ifdef __cplusplus
+
+#include "SwiftBridging.h"
+#include <atomic>
+
+namespace expo {
+
+class RuntimeScheduler {
+public:
+  enum class Priority : int {
+    ImmediatePriority = 1,
+    UserBlockingPriority = 2,
+    NormalPriority = 3,
+    LowPriority = 4,
+    IdlePriority = 5,
+  };
+
+  using ScheduleTaskCallback = void(^)();
+  using ScheduleFn = void (*)(void *nativeScheduler, int priority, ScheduleTaskCallback callback);
+
+private:
+  void *const nativeScheduler{nullptr};
+  const ScheduleFn scheduleFn{nullptr};
+  std::atomic<int> refCount{1};
+
+public:
+  RuntimeScheduler(void *scheduler, ScheduleFn fn) noexcept
+      : nativeScheduler(scheduler), scheduleFn(fn) {}
+
+  RuntimeScheduler() {}
+
+  RuntimeScheduler(const RuntimeScheduler &) = delete;
+
+  bool supportsAsyncScheduling() const noexcept {
+    return scheduleFn != nullptr;
   }
+
+  void scheduleTask(Priority priority, ScheduleTaskCallback callback) noexcept {
+    if (scheduleFn != nullptr) {
+      scheduleFn(nativeScheduler, static_cast<int>(priority), callback);
+    } else {
+      callback();
+    }
+  }
+
+  void retain() {
+    refCount.fetch_add(1, std::memory_order_relaxed);
+  }
+
+  void release() {
+    if (refCount.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+      delete this;
+    }
+  }
+} SWIFT_SHARED_REFERENCE(retainRuntimeScheduler, releaseRuntimeScheduler);
+
+} // namespace expo
+
+inline void retainRuntimeScheduler(expo::RuntimeScheduler *scheduler) {
+  scheduler->retain();
+}
+
+inline void releaseRuntimeScheduler(expo::RuntimeScheduler *scheduler) {
+  scheduler->release();
+}
+
+#endif // __cplusplus
+`;
+  fs.writeFileSync(runtimeSchedulerPath, cleanRuntimeScheduler, 'utf8');
+  console.log('✅ Wrote clean RuntimeScheduler.h');
 
   // Fix CppError.h
   const cppErrorPath = path.join(includeDir, 'CppError.h');
