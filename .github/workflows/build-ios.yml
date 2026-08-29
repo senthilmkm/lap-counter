@@ -40,10 +40,7 @@ jobs:
 
       - name: 🔧 Fix SwiftPM Compatibility for Expo Modules
         run: |
-          if [ -f "node_modules/expo-modules-jsi/apple/Package.swift" ]; then
-            sed -i '' 's/swift-tools-version: 6.2/swift-tools-version: 6.0/g' node_modules/expo-modules-jsi/apple/Package.swift
-            echo "Successfully patched ExpoModulesJSI Package.swift to swift-tools-version: 6.0"
-          fi
+          node scripts/postinstall.js
 
       - name: 🚀 Install EAS CLI
         run: npm install -g eas-cli@latest

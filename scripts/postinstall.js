@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-// 1. Completely rewrite ExpoModulesJSI Package.swift with 100% valid Swift 6.0 syntax (zero trailing commas)
+// 1. Completely rewrite ExpoModulesJSI Package.swift with 100% valid Swift 6.0 manifest
 const cleanExpoModulesJSIPackageSwift = `// swift-tools-version: 6.0
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
@@ -77,6 +77,7 @@ let package = Package(
         .interoperabilityMode(.Cxx),
         .enableUpcomingFeature("NonisolatedNonsendingByDefault"),
         .enableUpcomingFeature("InferIsolatedConformances"),
+        .enableExperimentalFeature("NonescapableTypes"),
         .unsafeFlags([
           "-enable-library-evolution",
           "-emit-module-interface",
@@ -173,3 +174,51 @@ if (fs.existsSync(buildXcframeworkPath)) {
     console.log('✅ Patched build-xcframework.sh to allow automatic package resolution');
   }
 }
+
+// 4. Recursive Swift source patcher for Swift 6.0 compiler compatibility
+function patchSwiftFiles(dir) {
+  if (!fs.existsSync(dir)) return;
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      patchSwiftFiles(fullPath);
+    } else if (entry.isFile() && entry.name.endsWith('.swift')) {
+      let content = fs.readFileSync(fullPath, 'utf8');
+      let modified = false;
+
+      // Fix 1: Swift 6.0 requires weak references to be 'var', not 'let'
+      if (content.includes('weak let')) {
+        content = content.replace(/\bweak\s+let\b/g, 'weak var');
+        modified = true;
+      }
+
+      // Fix 2: Swift 6.0 Task has no 'name:' argument
+      if (content.includes('Task(name: name, priority: .high, operation: operation)')) {
+        content = content.replace('Task(name: name, priority: .high, operation: operation)', 'Task(priority: .high, operation: operation)');
+        modified = true;
+      }
+
+      // Fix 3: C++ vector push_back argument label
+      if (content.includes('vector.push_back(consuming: propNameId)')) {
+        content = content.replace('vector.push_back(consuming: propNameId)', 'vector.push_back(propNameId)');
+        modified = true;
+      }
+
+      // Fix 4: Trailing commas before parameter list closing parenthesis
+      const trailingCommaRegex = /,\s*\)\s*(async|throws|->|\{)/g;
+      if (trailingCommaRegex.test(content)) {
+        content = content.replace(trailingCommaRegex, ') $1');
+        modified = true;
+      }
+
+      if (modified) {
+        fs.writeFileSync(fullPath, content, 'utf8');
+        console.log(`✅ Patched Swift source: ${entry.name}`);
+      }
+    }
+  }
+}
+
+const sourcesDir = path.join(__dirname, '..', 'node_modules', 'expo-modules-jsi', 'apple', 'Sources');
+patchSwiftFiles(sourcesDir);
