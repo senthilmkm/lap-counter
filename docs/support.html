@@ -388,9 +388,16 @@
       </div>
 
       <div class="faq-item">
-        <h3 class="faq-question">How does Strava Cloud Auto-Sync work?</h3>
+        <h3 class="faq-question">Do I need to enter any manual API keys or tokens for Strava?</h3>
         <p class="faq-answer">
-          When connected under Settings, Orbit Pro automatically uploads completed workout telemetry (including lap split times and GPS route polylines) directly to your Strava activity feed hands-free.
+          No! You never have to copy or paste API tokens. Orbit uses standard, secure Strava OAuth 2.0 authorization. You simply tap "Authorize" with your Strava account, and Orbit manages token exchanges and automated background refreshes invisibly.
+        </p>
+      </div>
+
+      <div class="faq-item">
+        <h3 class="faq-question">What happens if I work out without internet or cell reception (Offline Resiliency)?</h3>
+        <p class="faq-answer">
+          Orbit records 100% of your workout data (laps, steps, cadence, calories, and GPS route points) directly into a local SQLite database on your device in real time. If you finish your run offline, nothing is lost. As soon as you regain internet or Wi-Fi, open the History tab and tap <strong>"🟠 Upload to Strava"</strong> to sync instantly.
         </p>
       </div>
 

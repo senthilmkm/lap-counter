@@ -2086,6 +2086,16 @@ function MetricsInfoModal(props: {
                 Outdoors, this app relies on continuous background GPS tracking to count laps accurately. Continued use of GPS running in the background can dramatically decrease battery life. Indoors, sensors operate in a low-power mode to maximize battery efficiency.
               </Text>
             </View>
+
+            <View style={styles.infoSection}>
+              <Text style={styles.infoSecTitle}>💾 Offline Resiliency & Cloud Sync</Text>
+              <Text style={styles.infoSecDesc}>
+                Every workout session, lap split, and GPS coordinate is saved locally into your device's high-speed SQLite database before any network call. If you train in remote areas, indoor basements, or airplane mode without cellular data:
+              </Text>
+              <Text style={styles.bulletText}>• <Text style={{fontWeight: 'bold'}}>100% Local Persistence</Text>: No workout is ever lost due to bad internet.</Text>
+              <Text style={styles.bulletText}>• <Text style={{fontWeight: 'bold'}}>No Manual Tokens</Text>: Strava sync uses standard secure OAuth authorization with automated background token refreshing.</Text>
+              <Text style={styles.bulletText}>• <Text style={{fontWeight: 'bold'}}>1-Tap Delayed Upload</Text>: When you return to Wi-Fi, open History and tap "Upload to Strava" or generate your Social Story Card.</Text>
+            </View>
           </ScrollView>
 
           <Pressable onPress={props.onClose} style={[styles.primaryButton, { marginTop: 16, width: '100%' }]}>
@@ -2262,6 +2272,16 @@ function SettingsScreen(props: {
               <View style={styles.proPillBadge}>
                 <Text style={styles.proPillText}>PRO</Text>
               </View>
+              <Pressable
+                onPress={() => Alert.alert(
+                  'Strava Cloud Sync & Offline Guide',
+                  '• Zero Token Entry: You never need to enter manual API keys. Orbit authorizes securely via standard OAuth.\n\n• Auto-Refresh: Expired tokens are refreshed automatically in the background.\n\n• Offline Resiliency: If you finish a workout without cell service or Wi-Fi, your workout is 100% saved locally in SQLite. You can upload it anytime with 1 tap from History!'
+                )}
+                style={{ padding: 4 }}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Text style={{ fontSize: 16, color: '#fc4c02' }}>ℹ️</Text>
+              </Pressable>
             </View>
             <Text style={styles.settingsDescription}>
               Auto-upload completed sessions and splits to Strava.
