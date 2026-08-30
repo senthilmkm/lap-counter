@@ -422,7 +422,7 @@ const jsiPackageSwift = path.join(
   __dirname, '..', 'node_modules', 'expo-modules-jsi', 'apple', 'Package.swift'
 );
 if (fs.existsSync(jsiPackageSwift)) {
-  const cleanSwiftContent = `// swift-tools-version: 6.0
+  const cleanSwiftContent = `// swift-tools-version: 5.9
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import Foundation
@@ -487,6 +487,7 @@ let package = Package(
     )
   ],
   dependencies: [],
+  swiftLanguageVersions: [.v5],
   targets: [
     // Swift target (public)
     .target(
