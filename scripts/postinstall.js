@@ -296,14 +296,6 @@ if (fs.existsSync(coreIosDir)) {
           }
         }
 
-        // Fix ViewWrapper in ExpoSwiftUI.swift to be @MainActor
-        if (entry.name === 'ExpoSwiftUI.swift') {
-          if (content.includes('public protocol ViewWrapper {') && !content.includes('@MainActor\n  public protocol ViewWrapper')) {
-            content = content.replace('public protocol ViewWrapper {', '@MainActor\n  public protocol ViewWrapper {');
-            changed = true;
-          }
-        }
-
         // Fix AnyExpoSwiftUIHostingView in SwiftUIHostingView.swift to be @MainActor
         if (entry.name === 'SwiftUIHostingView.swift') {
           if (content.includes('internal protocol AnyExpoSwiftUIHostingView {') && !content.includes('@MainActor\ninternal protocol AnyExpoSwiftUIHostingView')) {
@@ -371,12 +363,8 @@ if (fs.existsSync(coreIosDir)) {
           }
         }
 
-        // Fix performSynchronouslyOnMainThread -> performSynchronouslyOnMainActor in DynamicSwiftUIViewType.swift
-        if (entry.name === 'DynamicSwiftUIViewType.swift') {
-          if (content.includes('return try performSynchronouslyOnMainThread {')) {
-            content = content.replace('return try performSynchronouslyOnMainThread {', 'return try performSynchronouslyOnMainActor {');
-            changed = true;
-          }
+        // Fix cast in DynamicConvertibleType.swift
+        if (entry.name === 'DynamicConvertibleType.swift') {
           const oldCastBlock = `    if let recordType = innerType as? (any Record).Type {
       return try recordType.from(object: jsValue.asObject(), appContext: appContext)
     }`;
