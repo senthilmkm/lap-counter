@@ -845,6 +845,8 @@ internal func capturingCppErrors<R>(_ block: () throws -> R) throws -> R {
       // Fix JavaScriptActor.swift for Swift 6.0
       if (entry.name === 'JavaScriptActor.swift') {
         const fullActorReplacement = `import Foundation
+internal import jsi
+internal import ExpoModulesJSI_Cxx
 
 @globalActor
 public actor JavaScriptActor: GlobalActor {
