@@ -2066,12 +2066,14 @@ function FinishedCard(props: {
       </Pressable>
 
       {/* Strava 1-Tap Cloud Sync (Pro Gated) */}
-      <Pressable
-        onPress={props.onSyncStrava}
-        style={[styles.exportBtn, { backgroundColor: '#fc4c02', marginTop: 8, width: '100%' }]}
-      >
-        <Text style={styles.exportBtnText}>{props.isPremium ? '🟠 Upload to Strava' : '👑 Unlock Strava Cloud Sync'}</Text>
-      </Pressable>
+      {FEATURE_FLAGS.ENABLE_STRAVA_INTEGRATION && (
+        <Pressable
+          onPress={props.onSyncStrava}
+          style={[styles.exportBtn, { backgroundColor: '#fc4c02', marginTop: 8, width: '100%' }]}
+        >
+          <Text style={styles.exportBtnText}>{props.isPremium ? '🟠 Upload to Strava' : '👑 Unlock Strava Cloud Sync'}</Text>
+        </Pressable>
+      )}
 
       {/* Exporter triggers for premium tier */}
       {props.isPremium ? (

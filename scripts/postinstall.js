@@ -203,6 +203,28 @@ if (fs.existsSync(coreIosDir)) {
           }
         }
 
+        // Fix Promise legacyResolver in Promise.swift
+        if (entry.name === 'Promise.swift') {
+          if (!content.includes('legacyResolver')) {
+            content = content.replace(
+              'public var rejecter: RejectClosure',
+              'public var rejecter: RejectClosure\n\n  public var legacyResolver: EXPromiseResolveBlock {\n    return { value in\n      resolve(value)\n    }\n  }'
+            );
+            changed = true;
+          }
+        }
+
+        // Fix FileSystemUtilities isReadableFile in FileSystemUtilities.swift
+        if (entry.name === 'FileSystemUtilities.swift') {
+          if (!content.includes('isReadableFile')) {
+            content = content.replace(
+              'public static func ensureDirExists',
+              'public static func isReadableFile(_ appContext: AppContext?, _ url: URL) -> Bool {\n    return permissions(appContext, for: url).contains(.read) || FileManager.default.isReadableFile(atPath: url.path)\n  }\n\n  public static func ensureDirExists'
+            );
+            changed = true;
+          }
+        }
+
         // Fix ShadowNodeProxy init() in SwiftUIShadowNodeProxy.swift
         if (entry.name === 'SwiftUIShadowNodeProxy.swift') {
           if (content.includes('public nonisolated required init() {}')) {
