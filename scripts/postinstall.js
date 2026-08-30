@@ -860,18 +860,22 @@ public actor JavaScriptActor: GlobalActor {
     return executor.asUnownedSerialExecutor()
   }
 
-  internal static func assumeIsolated<T>(_ operation: @escaping @JavaScriptActor () throws -> T) throws -> T {
+  internal static func assumeIsolated<T>(_ operation: @JavaScriptActor () throws -> T) throws -> T {
     Self.checkIsolated()
     typealias RawFn = () throws -> T
-    let raw = unsafeBitCast(operation, to: RawFn.self)
-    return try raw()
+    return try withoutActuallyEscaping(operation) { escapingOp in
+      let raw = unsafeBitCast(escapingOp, to: RawFn.self)
+      return try raw()
+    }
   }
 
-  internal static func assumeIsolated<T>(_ operation: @escaping @JavaScriptActor () -> T) -> T {
+  internal static func assumeIsolated<T>(_ operation: @JavaScriptActor () -> T) -> T {
     Self.checkIsolated()
     typealias RawFn = () -> T
-    let raw = unsafeBitCast(operation, to: RawFn.self)
-    return raw()
+    return withoutActuallyEscaping(operation) { escapingOp in
+      let raw = unsafeBitCast(escapingOp, to: RawFn.self)
+      return raw()
+    }
   }
 
   internal static func checkIsolated() {
