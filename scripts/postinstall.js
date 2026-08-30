@@ -790,6 +790,73 @@ extension Task where Failure == any Error {
           );
           changed = true;
         }
+
+        // Direct forwarding for C++ trampolines returning facebook.jsi.Value
+        if (content.includes('return JavaScriptActor.assumeIsolated {\n        return forwardingSwiftErrorsToJS')) {
+          content = content.replace(
+            /return\s+JavaScriptActor\.assumeIsolated\s*\{\s*return\s+forwardingSwiftErrorsToJS\(runtime:\s*runtime\)\s*\{[\s\S]*?return\s+try\s+context\.get\(propertyName\)\.asJSIValue\(\)\s*\}\s*\}/,
+            `return forwardingSwiftErrorsToJS(runtime: runtime) {
+        return try context.get(propertyName).asJSIValue()
+      }`
+          );
+          changed = true;
+        }
+
+        if (content.includes('return try context.get(propertyName).asJSIValue()\n        }\n      }')) {
+          content = content.replace(
+            'return try context.get(propertyName).asJSIValue()\n        }\n      }',
+            'return try context.get(propertyName).asJSIValue()\n      }'
+          );
+          changed = true;
+        }
+
+        if (content.includes('try set(propertyName, value)\n        }\n      }')) {
+          content = content.replace(
+            'try set(propertyName, value)\n        }\n      }',
+            'try set(propertyName, value)\n      }'
+          );
+          changed = true;
+        }
+
+        if (content.includes('JavaScriptActor.assumeIsolated {\n        forwardingSwiftErrorsToJS(runtime: runtime) {')) {
+          content = content.replace(
+            /JavaScriptActor\.assumeIsolated\s*\{\s*forwardingSwiftErrorsToJS\(runtime:\s*runtime\)\s*\{[\s\S]*?try\s+set\(propertyName,\s*value\)\s*\}\s*\}/,
+            `forwardingSwiftErrorsToJS(runtime: runtime) {
+        try set(propertyName, value)
+      }`
+          );
+          changed = true;
+        }
+
+        if (content.includes('return JavaScriptActor.assumeIsolated {\n      return forwardingSwiftErrorsToJS')) {
+          content = content
+            .replace(
+              /return\s+JavaScriptActor\.assumeIsolated\s*\{\s*return\s+forwardingSwiftErrorsToJS\(runtime:\s*runtime\)\s*\{[\s\S]*?return\s+try\s+context\.call\(thisValue,\s*consume\s+arguments\)\.asJSIValue\(\)\s*\}\s*\}/,
+              `return forwardingSwiftErrorsToJS(runtime: runtime) {
+        let this = UnsafeMutablePointer(mutating: thisPtr).move()
+        let arguments = JavaScriptValuesBuffer(runtime, start: argumentsPtr, count: argumentsCount)
+        let thisValue = JavaScriptValue(runtime, this)
+        return try context.call(thisValue, consume arguments).asJSIValue()
+      }`
+            )
+            .replace(
+              /return\s+JavaScriptActor\.assumeIsolated\s*\{\s*return\s+forwardingSwiftErrorsToJS\(runtime:\s*runtime\)\s*\{[\s\S]*?return\s+try\s+context\.call\(thisValue,\s*consume\s+arguments\)\.asJSIValue\(\)\s*\}\s*\}/,
+              `return forwardingSwiftErrorsToJS(runtime: runtime) {
+        let arguments = JavaScriptValuesBuffer(runtime, start: argumentsPtr, count: argumentsCount)
+        let thisValue = JavaScriptUnownedValue(runtime.pointee, thisPtr)
+        return try context.call(thisValue, consume arguments).asJSIValue()
+      }`
+            );
+          changed = true;
+        }
+
+        if (content.includes('return try context.call(thisValue, consume arguments).asJSIValue()\n      }\n    }')) {
+          content = content.replaceAll(
+            'return try context.call(thisValue, consume arguments).asJSIValue()\n      }\n    }',
+            'return try context.call(thisValue, consume arguments).asJSIValue()\n    }'
+          );
+          changed = true;
+        }
       }
 
       // Fix ErrorHandling.swift non-copyable type handling
@@ -861,9 +928,13 @@ public actor JavaScriptActor: GlobalActor {
   }
 
   @discardableResult
-  public static func assumeIsolated<T>(_ operation: () throws -> T) rethrows -> T {
+  public static func assumeIsolated<T>(_ operation: @JavaScriptActor () throws -> T) rethrows -> T {
     Self.checkIsolated()
-    return try operation()
+    typealias RawFn = () throws -> T
+    return try withoutActuallyEscaping(operation) { fn in
+      let raw = unsafeBitCast(fn, to: RawFn.self)
+      return try raw()
+    }
   }
 
   public static func checkIsolated() {
