@@ -178,22 +178,35 @@ if (fs.existsSync(coreIosDir)) {
 
         // Fix DynamicSwiftUIViewType in DynamicSwiftUIViewType.swift
         if (entry.name === 'DynamicSwiftUIViewType.swift') {
-          const newCastBody = `    return try performSynchronouslyOnMainThreadThrowing {
+          const newCastBody = `    final class NonisolatedBox: @unchecked Sendable {
+      var value: Any?
+    }
+    let box = NonisolatedBox()
+    let resolveClosure = { @MainActor in
       if let view = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.SwiftUIVirtualView<ViewType.Props, ViewType>.self) {
-        return MainActor.assumeIsolated { view.contentView }
+        box.value = view.contentView
+      } else if let view = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.SwiftUIVirtualViewDev<ViewType.Props, ViewType>.self) {
+        box.value = view.contentView
+      } else if let provider = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.ViewWrapper.self),
+                let innerView = provider.getWrappedView() as? ViewType {
+        box.value = innerView
+      } else if let view = appContext.findView(withTag: viewTag, ofType: AnyExpoSwiftUIHostingView.self) {
+        box.value = view.getContentView()
       }
-      if let view = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.SwiftUIVirtualViewDev<ViewType.Props, ViewType>.self) {
-        return MainActor.assumeIsolated { view.contentView }
+    }
+    if Thread.isMainThread {
+      MainActor.assumeIsolated {
+        resolveClosure()
       }
-      if let provider = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.ViewWrapper.self),
-         let innerView = MainActor.assumeIsolated({ provider.getWrappedView() }) as? ViewType {
-        return innerView
+    } else {
+      DispatchQueue.main.sync {
+        resolveClosure()
       }
-      guard let view = appContext.findView(withTag: viewTag, ofType: AnyExpoSwiftUIHostingView.self) else {
-        throw Exceptions.SwiftUIViewNotFound((tag: viewTag, type: self.innerType.self))
-      }
-      return MainActor.assumeIsolated { view.getContentView() }
-    }`;
+    }
+    guard let result = box.value else {
+      throw Exceptions.SwiftUIViewNotFound((tag: viewTag, type: self.innerType.self))
+    }
+    return result`;
           if (content.includes('return try performSynchronouslyOnMainActor {')) {
             content = content.replace(/    return try performSynchronouslyOnMainActor \{[\s\S]*?    return view\.getContentView\(\)\n    \}/m, newCastBody);
             changed = true;
@@ -201,7 +214,7 @@ if (fs.existsSync(coreIosDir)) {
             content = content.replace(/    return try performSynchronouslyOnMainThread \{[\s\S]*?    return view\.getContentView\(\)\n    \}/m, newCastBody);
             changed = true;
           } else if (content.includes('return try performSynchronouslyOnMainThreadThrowing {')) {
-            content = content.replace(/    return try performSynchronouslyOnMainThreadThrowing \{[\s\S]*?      return try nonisolatedResolve\(\)\n    \}/m, newCastBody);
+            content = content.replace(/    return try performSynchronouslyOnMainThreadThrowing \{[\s\S]*?      return MainActor\.assumeIsolated \{ view\.getContentView\(\) \}\n    \}/m, newCastBody);
             changed = true;
           } else if (content.includes('let resolvedView = performSynchronouslyOnMainActor {')) {
             content = content.replace(/    let resolvedView = performSynchronouslyOnMainActor \{[\s\S]*?    return result/m, newCastBody);
