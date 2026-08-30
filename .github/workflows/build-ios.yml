@@ -16,9 +16,13 @@ jobs:
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
 
-      - name: 🍏 Setup Xcode 16.1 & iOS SDK
+      - name: 🍏 Setup Xcode & iOS SDK
         run: |
-          if [ -d "/Applications/Xcode_16.1.app" ]; then
+          echo "Available Xcode installations:"
+          ls -d /Applications/Xcode* 2>/dev/null || true
+          if [ -d "/Applications/Xcode_16.2.app" ]; then
+            sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
+          elif [ -d "/Applications/Xcode_16.1.app" ]; then
             sudo xcode-select -s /Applications/Xcode_16.1.app/Contents/Developer
           elif [ -d "/Applications/Xcode_16.0.app" ]; then
             sudo xcode-select -s /Applications/Xcode_16.0.app/Contents/Developer
