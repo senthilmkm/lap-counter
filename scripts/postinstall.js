@@ -157,9 +157,6 @@ let package = Package(
         .interoperabilityMode(.Cxx),
 
         .unsafeFlags([
-          "-enable-library-evolution",
-          "-emit-module-interface",
-          "-no-verify-emitted-module-interface",
           "-Xfrontend",
           "-clang-header-expose-decls=has-expose-attr",
 
