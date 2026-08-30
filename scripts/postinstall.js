@@ -581,6 +581,48 @@ if (fs.existsSync(jsiUtilsPath)) {
   }
 }
 
+// 4f. CppError.h (fix all std::make_unique<CppError> which trigger __construct_at with move-only jsi::JSError)
+const cppErrorPath = path.join(cxxIncludeDir, 'CppError.h');
+if (fs.existsSync(cppErrorPath)) {
+  let content = fs.readFileSync(cppErrorPath, 'utf8');
+  let changed = false;
+  if (content.includes('std::make_unique<CppError>')) {
+    content = content
+      .replace(
+        '_current = std::make_unique<CppError>(std::move(e));',
+        '_current = std::unique_ptr<CppError>(new CppError(std::move(e)));'
+      )
+      .replace(
+        '_current = std::make_unique<CppError>(jsi::JSError(runtime, e.what()));',
+        '_current = std::unique_ptr<CppError>(new CppError(jsi::JSError(runtime, e.what())));'
+      )
+      .replace(
+        '_current = std::make_unique<CppError>(jsi::JSError(runtime, "Unknown C++ error"));',
+        '_current = std::unique_ptr<CppError>(new CppError(jsi::JSError(runtime, "Unknown C++ error")));'
+      )
+      .replace(
+        '_current = std::make_unique<CppError>(std::move(jsError));',
+        '_current = std::unique_ptr<CppError>(new CppError(std::move(jsError)));'
+      )
+      .replace(
+        '_current = std::make_unique<CppError>(std::move(cppError));',
+        '_current = std::unique_ptr<CppError>(new CppError(std::move(cppError)));'
+      )
+      .replace(
+        '_current = std::make_unique<CppError>(jsi::JSError(runtime, message));',
+        '_current = std::unique_ptr<CppError>(new CppError(jsi::JSError(runtime, message)));'
+      );
+    changed = true;
+  }
+  if (changed) {
+    fs.writeFileSync(cppErrorPath, content, 'utf8');
+    console.log('✅ Patched CppError.h to replace all std::make_unique with std::unique_ptr(new CppError(...))');
+  } else {
+    console.log('✔  CppError.h already up-to-date');
+  }
+}
+
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 5. Patch expo-modules-jsi Swift sources for Swift 6.0 compatibility
 // ─────────────────────────────────────────────────────────────────────────────
