@@ -52,7 +52,7 @@ jobs:
       - name: 🔨 Build iOS IPA (Free Local Xcode 16 Build)
         env:
           EXPO_DEBUG: "1"
-          EAS_LOCAL_BUILD_DEBUG: "1"
+          EAS_LOCAL_BUILD_WORKINGDIR: "/Users/runner/work/eas-build"
         run: |
           eas build --platform ios --profile production --local --non-interactive --output ./Orbit.ipa
 
@@ -64,8 +64,10 @@ jobs:
         if: failure()
         run: |
           echo "=== Searching for EAS Xcode / Fastlane / Gym build error logs ==="
-          find ~/Library/Logs /var/folders /tmp ~/.eas -type f \( -name "*.log" -o -name "*.txt" \) 2>/dev/null | while read logfile; do
-            echo "=== Logfile: $logfile ==="
-            grep -E -C 5 "error:|fatal error:|BUILD FAILED" "$logfile" | head -n 100 || true
+          find -L /Users/runner/work /private/var/folders /tmp ~/.eas ~/Library/Logs -type f \( -name "*.log" -o -name "*.txt" \) 2>/dev/null | while read logfile; do
+            if grep -q -E "error:|fatal error:|BUILD FAILED" "$logfile" 2>/dev/null; then
+              echo "=== Logfile: $logfile ==="
+              grep -E -C 5 "error:|fatal error:|BUILD FAILED" "$logfile" | head -n 100 || true
+            fi
           done
 
