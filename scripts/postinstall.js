@@ -79,17 +79,17 @@ for (const podspecPath of podspecsToFix) {
       );
       changed = true;
     }
-    if (content.includes("s.swift_version  = '6.0'")) {
-      content = content.replace("s.swift_version  = '6.0'", "s.swift_version  = '5.0'");
+    if (content.includes("s.swift_version  = '5.0'")) {
+      content = content.replace("s.swift_version  = '5.0'", "s.swift_version  = '6.0'");
       changed = true;
     }
-    if (content.includes("s.swift_version = '6.0'")) {
-      content = content.replace("s.swift_version = '6.0'", "s.swift_version = '5.0'");
+    if (content.includes("s.swift_version = '5.0'")) {
+      content = content.replace("s.swift_version = '5.0'", "s.swift_version = '6.0'");
       changed = true;
     }
     if (changed) {
       fs.writeFileSync(podspecPath, content, 'utf8');
-      console.log(`✅ Patched ${path.basename(podspecPath)} (build from source, Swift 5.0 mode)`);
+      console.log(`✅ Patched ${path.basename(podspecPath)} (build from source, Swift 6.0 mode)`);
     }
   }
 }
