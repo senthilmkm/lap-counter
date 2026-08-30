@@ -131,31 +131,31 @@ if (fs.existsSync(coreIosDir)) {
           }
         }
 
-        // Fix ViewProps nonisolated init() in SwiftUIViewProps.swift
+        // Fix ViewProps init() in SwiftUIViewProps.swift
         if (entry.name === 'SwiftUIViewProps.swift') {
-          if (content.includes('public required nonisolated init() {}')) {
-            content = content.replace('public required nonisolated init() {}', 'public nonisolated required init() {}');
+          if (content.includes('public nonisolated required init() {}')) {
+            content = content.replace('public nonisolated required init() {}', 'public required init() {}');
             changed = true;
-          } else if (content.includes('public required init() {}')) {
-            content = content.replace('public required init() {}', 'public nonisolated required init() {}');
+          } else if (content.includes('public required nonisolated init() {}')) {
+            content = content.replace('public required nonisolated init() {}', 'public required init() {}');
             changed = true;
           }
-          if (content.includes('public required nonisolated init(rawProps:')) {
-            content = content.replace('public required nonisolated init(rawProps:', 'public nonisolated required init(rawProps:');
+          if (content.includes('public nonisolated required init(rawProps:')) {
+            content = content.replace('public nonisolated required init(rawProps:', 'public required init(rawProps:');
             changed = true;
-          } else if (content.includes('public required init(rawProps:')) {
-            content = content.replace('public required init(rawProps:', 'public nonisolated required init(rawProps:');
+          } else if (content.includes('public required nonisolated init(rawProps:')) {
+            content = content.replace('public required nonisolated init(rawProps:', 'public required init(rawProps:');
             changed = true;
           }
         }
 
-        // Fix ShadowNodeProxy nonisolated init() in SwiftUIShadowNodeProxy.swift
+        // Fix ShadowNodeProxy init() in SwiftUIShadowNodeProxy.swift
         if (entry.name === 'SwiftUIShadowNodeProxy.swift') {
-          if (content.includes('public required nonisolated init() {}')) {
-            content = content.replace('public required nonisolated init() {}', 'public nonisolated required init() {}');
+          if (content.includes('public nonisolated required init() {}')) {
+            content = content.replace('public nonisolated required init() {}', 'public required init() {}');
             changed = true;
-          } else if (content.includes('public required init() {}')) {
-            content = content.replace('public required init() {}', 'public nonisolated required init() {}');
+          } else if (content.includes('public required nonisolated init() {}')) {
+            content = content.replace('public required nonisolated init() {}', 'public required init() {}');
             changed = true;
           }
         }
@@ -184,14 +184,30 @@ if (fs.existsSync(coreIosDir)) {
           }
         }
 
-        // Fix SwiftUIVirtualView extension @MainActor in SwiftUIVirtualView.swift
+        // Fix SwiftUIVirtualView extension in SwiftUIVirtualView.swift
         if (entry.name === 'SwiftUIVirtualView.swift') {
+          if (content.includes('@MainActor\nextension ExpoSwiftUI.SwiftUIVirtualView: ExpoSwiftUI.ViewWrapper {')) {
+            content = content.replace('@MainActor\nextension ExpoSwiftUI.SwiftUIVirtualView: ExpoSwiftUI.ViewWrapper {', 'extension ExpoSwiftUI.SwiftUIVirtualView: ExpoSwiftUI.ViewWrapper {');
+            changed = true;
+          }
           if (content.includes('extension ExpoSwiftUI.SwiftUIVirtualView: @MainActor ExpoSwiftUI.ViewWrapper {')) {
-            content = content.replace('extension ExpoSwiftUI.SwiftUIVirtualView: @MainActor ExpoSwiftUI.ViewWrapper {', '@MainActor\nextension ExpoSwiftUI.SwiftUIVirtualView: ExpoSwiftUI.ViewWrapper {');
+            content = content.replace('extension ExpoSwiftUI.SwiftUIVirtualView: @MainActor ExpoSwiftUI.ViewWrapper {', 'extension ExpoSwiftUI.SwiftUIVirtualView: ExpoSwiftUI.ViewWrapper {');
+            changed = true;
+          }
+          if (content.includes('@MainActor\nextension ExpoSwiftUI.SwiftUIVirtualViewDev: ExpoSwiftUI.ViewWrapper {')) {
+            content = content.replace('@MainActor\nextension ExpoSwiftUI.SwiftUIVirtualViewDev: ExpoSwiftUI.ViewWrapper {', 'extension ExpoSwiftUI.SwiftUIVirtualViewDev: ExpoSwiftUI.ViewWrapper {');
             changed = true;
           }
           if (content.includes('extension ExpoSwiftUI.SwiftUIVirtualViewDev: @MainActor ExpoSwiftUI.ViewWrapper {')) {
-            content = content.replace('extension ExpoSwiftUI.SwiftUIVirtualViewDev: @MainActor ExpoSwiftUI.ViewWrapper {', '@MainActor\nextension ExpoSwiftUI.SwiftUIVirtualViewDev: ExpoSwiftUI.ViewWrapper {');
+            content = content.replace('extension ExpoSwiftUI.SwiftUIVirtualViewDev: @MainActor ExpoSwiftUI.ViewWrapper {', 'extension ExpoSwiftUI.SwiftUIVirtualViewDev: ExpoSwiftUI.ViewWrapper {');
+            changed = true;
+          }
+        }
+
+        // Fix ExpoSwiftUI.swift ViewWrapper
+        if (entry.name === 'ExpoSwiftUI.swift') {
+          if (content.includes('@MainActor\n  public protocol ViewWrapper {')) {
+            content = content.replace('@MainActor\n  public protocol ViewWrapper {', '  public protocol ViewWrapper {');
             changed = true;
           }
         }
