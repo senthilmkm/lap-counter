@@ -21,7 +21,7 @@ const path = require('path');
 //
 // 4. expo-modules-jsi C++ Headers:
 //    - RuntimeScheduler.h: Add #ifndef SWIFT_RETURNS_RETAINED fallback define.
-//    - HostFunctionClosure.h & RetainedSwiftPointer.h: Use function pointer syntax for Closure/Deallocator.
+//    - RetainedSwiftPointer.h & HostFunctionClosure.h: Clean function pointer types and remove SWIFT_IMMORTAL_REFERENCE.
 //
 // 5. expo-modules-jsi Swift sources:
 //    - Replace 'weak let' with 'nonisolated(unsafe) weak var' (for Swift 6.0 Sendable compatibility).
@@ -260,10 +260,11 @@ if (fs.existsSync(retainedPointerPath)) {
   let content = fs.readFileSync(retainedPointerPath, 'utf8');
   content = content
     .replace('using Deallocator = void(Context);', 'using Deallocator = void (*)(Context);')
-    .replace('explicit RetainedSwiftPointer', 'RetainedSwiftPointer')
-    .replace('Deallocator *_Nonnull _deallocator;', 'Deallocator _deallocator;');
+    .replace(/explicit\s+RetainedSwiftPointer/g, 'RetainedSwiftPointer')
+    .replace('Deallocator *_Nonnull _deallocator;', 'Deallocator _deallocator;')
+    .replace(/}\s*SWIFT_IMMORTAL_REFERENCE\s*;/g, '};');
   fs.writeFileSync(retainedPointerPath, content, 'utf8');
-  console.log('✅ Patched RetainedSwiftPointer.h function pointer type');
+  console.log('✅ Patched RetainedSwiftPointer.h (function pointer & normal struct)');
 }
 
 // 4c. HostFunctionClosure.h
@@ -275,10 +276,11 @@ if (fs.existsSync(hostClosurePath)) {
       'using Closure = facebook::jsi::Value(Context context, const facebook::jsi::Value *_Nonnull thisValue, const facebook::jsi::Value *_Nonnull args, size_t count);',
       'using Closure = facebook::jsi::Value (*)(Context context, const facebook::jsi::Value *_Nonnull thisValue, const facebook::jsi::Value *_Nonnull args, size_t count);'
     )
-    .replace('explicit HostFunctionClosure', 'HostFunctionClosure')
-    .replace('Closure *_Nonnull _closure;', 'Closure _closure;');
+    .replace(/explicit\s+HostFunctionClosure/g, 'HostFunctionClosure')
+    .replace('Closure *_Nonnull _closure;', 'Closure _closure;')
+    .replace(/}\s*SWIFT_IMMORTAL_REFERENCE\s*;/g, '};');
   fs.writeFileSync(hostClosurePath, content, 'utf8');
-  console.log('✅ Patched HostFunctionClosure.h function pointer type');
+  console.log('✅ Patched HostFunctionClosure.h (function pointer & normal struct)');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
