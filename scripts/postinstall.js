@@ -1253,16 +1253,13 @@ if (fs.existsSync(buildXcframeworkScript)) {
     scriptContent = scriptContent.replace(/-quiet\s*\\?\n?/g, '');
     changedScript = true;
   }
-  if (!scriptContent.includes('OTHER_SWIFT_FLAGS=')) {
-    scriptContent = scriptContent.replace(
-      /SWIFT_COMPILATION_MODE=wholemodule\s*\\?/,
-      'SWIFT_COMPILATION_MODE=wholemodule \\\n    OTHER_SWIFT_FLAGS="-no-verify-emitted-module-interface"'
-    );
+  if (scriptContent.includes('OTHER_SWIFT_FLAGS=')) {
+    scriptContent = scriptContent.replace(/\s*OTHER_SWIFT_FLAGS="[^"]*"\s*\\?/g, '');
     changedScript = true;
   }
   if (changedScript) {
     fs.writeFileSync(buildXcframeworkScript, scriptContent, 'utf8');
-    console.log('✅ Patched build-xcframework.sh (removed -quiet, added -no-verify-emitted-module-interface)');
+    console.log('✅ Patched build-xcframework.sh (removed -quiet and OTHER_SWIFT_FLAGS override)');
   }
 }
 
