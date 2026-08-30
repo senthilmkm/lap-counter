@@ -123,11 +123,12 @@ let headerSearchPaths = [
   "\\(podsRoot)/DoubleConversion"
 ]
 
-let generatedModuleMap = "\\(packageDir)/.generated/module.modulemap"
+let generatedDir = "\\(packageDir)/.generated"
+let generatedModuleMap = "\\(generatedDir)/module.modulemap"
 let apiNotesPath = "\\(packageDir)/APINotes"
 
 let cxxIncludeFlags = headerSearchPaths.map({ "-I\\($0)" })
-let swiftIncludeFlags = headerSearchPaths.flatMap({ ["-Xcc", "-I\\($0)"] })
+let swiftIncludeFlags = headerSearchPaths.flatMap({ ["-I", $0, "-Xcc", "-I\\($0)"] })
 
 let testFrameworks = resolveTestFrameworks()
 
@@ -158,10 +159,12 @@ let package = Package(
 
         .unsafeFlags([
           "-no-verify-emitted-module-interface",
+          "-I", generatedDir,
           "-Xfrontend",
           "-clang-header-expose-decls=has-expose-attr",
 
           "-Xcc", "-fmodule-map-file=\\(generatedModuleMap)",
+          "-Xfrontend", "-fmodule-map-file=\\(generatedModuleMap)",
 
           "-Xcc", "-iapinotes-modules",
           "-Xcc", apiNotesPath
