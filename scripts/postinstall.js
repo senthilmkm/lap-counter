@@ -860,37 +860,35 @@ public actor JavaScriptActor: GlobalActor {
     return executor.asUnownedSerialExecutor()
   }
 
-  public static func assumeIsolated(_ operation: @escaping @JavaScriptActor () -> facebook.jsi.Value) -> facebook.jsi.Value {
+  internal static func assumeIsolated(_ operation: @escaping @JavaScriptActor () -> facebook.jsi.Value) -> facebook.jsi.Value {
     Self.checkIsolated()
     typealias RawFn = () -> facebook.jsi.Value
     let raw = unsafeBitCast(operation, to: RawFn.self)
     return raw()
   }
 
-  public static func assumeIsolated(_ operation: @escaping @JavaScriptActor () -> Void) {
+  internal static func assumeIsolated(_ operation: @escaping @JavaScriptActor () -> Void) {
     Self.checkIsolated()
     typealias RawFn = () -> Void
     let raw = unsafeBitCast(operation, to: RawFn.self)
     raw()
   }
 
-  public static func assumeIsolated<T>(_ operation: @escaping @JavaScriptActor () throws -> T) throws -> T {
+  internal static func assumeIsolated<T>(_ operation: @escaping @JavaScriptActor () throws -> T) throws -> T {
     Self.checkIsolated()
     typealias RawFn = () throws -> T
     let raw = unsafeBitCast(operation, to: RawFn.self)
     return try raw()
   }
 
-  public static func assumeIsolated<T>(_ operation: @escaping @JavaScriptActor () -> T) -> T {
+  internal static func assumeIsolated<T>(_ operation: @escaping @JavaScriptActor () -> T) -> T {
     Self.checkIsolated()
     typealias RawFn = () -> T
     let raw = unsafeBitCast(operation, to: RawFn.self)
     return raw()
   }
 
-  @inlinable
-  @inline(__always)
-  public static func checkIsolated() {
+  internal static func checkIsolated() {
     assert(
       Thread.current.name == "com.facebook.react.runtime.JavaScript" || !Thread.isMultiThreaded()
         || ProcessInfo.processInfo.processName == "xctest",
