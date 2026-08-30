@@ -467,7 +467,7 @@ const jsiPackageSwift = path.join(
   __dirname, '..', 'node_modules', 'expo-modules-jsi', 'apple', 'Package.swift'
 );
 if (fs.existsSync(jsiPackageSwift)) {
-  const cleanSwiftContent = `// swift-tools-version: 5.9
+  const cleanSwiftContent = `// swift-tools-version: 6.0
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import Foundation
@@ -497,7 +497,7 @@ let headerSearchPaths = [
   "\\(publicHeaders)/glog",
   "\\(publicHeaders)/DoubleConversion",
   "\\(publicHeaders)/fmt",
-  "\\(publicHeaders)/fast_float",
+  "\\(fastFloatHeader)",
   "\\(reactNative)/ReactCommon",
   "\\(reactNative)/ReactCommon/jsi",
   "\\(reactNative)/ReactCommon/runtimeexecutor",
@@ -506,7 +506,7 @@ let headerSearchPaths = [
   "\\(podsRoot)/fmt/include",
   "\\(podsRoot)/glog/src",
   "\\(podsRoot)/DoubleConversion"
-]
+].filter({ !$0.isEmpty })
 
 let generatedDir = "\\(packageDir)/.generated"
 let generatedModuleMap = "\\(generatedDir)/module.modulemap"
@@ -532,7 +532,6 @@ let package = Package(
     )
   ],
   dependencies: [],
-  swiftLanguageVersions: [.v5],
   targets: [
     // Swift target (public)
     .target(
