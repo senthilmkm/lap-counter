@@ -934,6 +934,22 @@ internal func capturingCppErrors<R>(_ block: () throws -> R) throws -> R {
         }
       }
 
+      // Remove @escaping when used with function typealiases (Swift 6.0 requirement)
+      if (content.includes('@escaping SyncFunctionClosure') ||
+          content.includes('@escaping UnownedThisSyncFunctionClosure') ||
+          content.includes('@escaping AsyncFunctionClosure') ||
+          content.includes('@escaping JavaScriptRuntime.') ||
+          content.includes('@escaping Getter') ||
+          content.includes('@escaping PropertyNamesGetter') ||
+          content.includes('@escaping Deallocator') ||
+          content.includes('@escaping Factory')) {
+        content = content.replace(/sending\s+@escaping\s+([A-Z]\w*Closure)/g, 'sending $1');
+        content = content.replace(/@escaping\s+([A-Z]\w*Closure)/g, '$1');
+        content = content.replace(/@escaping\s+JavaScriptRuntime\.([A-Z]\w*Closure)/g, 'JavaScriptRuntime.$1');
+        content = content.replace(/@escaping\s+(Getter|Setter|PropertyNamesGetter|Deallocator|Factory)/g, '$1');
+        changed = true;
+      }
+
       if (entry.name === 'HostFunctionContext.swift') {
         if (content.includes('@escaping JavaScriptRuntime.')) {
           content = content.replace(/@escaping\s+JavaScriptRuntime\./g, 'JavaScriptRuntime.');
