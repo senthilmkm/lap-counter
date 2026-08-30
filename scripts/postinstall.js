@@ -839,13 +839,18 @@ extension Task where Failure == any Error {
       }
 
       if (entry.name === 'JavaScriptPromise.swift') {
-        if (content.includes('@JavaScriptActor\n  private final class LongLivedState')) {
-          content = content.replace(
-            '@JavaScriptActor\n  private final class LongLivedState',
-            'private final class LongLivedState'
-          );
-          changed = true;
-        }
+        content = content.replace(
+          /(?:@JavaScriptActor\s+)?private\s+final\s+class\s+LongLivedState:\s*LongLivedObject\s*\{[\s\S]*?func\s+allowRelease\(\)\s*\{/,
+          `private final class LongLivedState: LongLivedObject {
+    let object = JavaScriptValue.Ref()
+    let resolveFunction = JavaScriptValue.Ref()
+    let rejectFunction = JavaScriptValue.Ref()
+
+    nonisolated init() {}
+
+    func allowRelease() {`
+        );
+        changed = true;
       }
 
       // Fix ErrorHandling.swift non-copyable type handling and @JavaScriptActor forwarding
