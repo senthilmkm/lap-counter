@@ -87,9 +87,16 @@ for (const podspecPath of podspecsToFix) {
       content = content.replace("s.swift_version = '5.0'", "s.swift_version = '6.0'");
       changed = true;
     }
+    if (content.includes("'OTHER_SWIFT_FLAGS' => \"$(inherited)") && !content.includes('-strict-concurrency=minimal')) {
+      content = content.replace(
+        "'OTHER_SWIFT_FLAGS' => \"$(inherited)",
+        "'OTHER_SWIFT_FLAGS' => \"$(inherited) -strict-concurrency=minimal"
+      );
+      changed = true;
+    }
     if (changed) {
       fs.writeFileSync(podspecPath, content, 'utf8');
-      console.log(`✅ Patched ${path.basename(podspecPath)} (build from source, Swift 6.0 mode)`);
+      console.log(`✅ Patched ${path.basename(podspecPath)} (build from source, Swift 6.0 mode, minimal concurrency checking)`);
     }
   }
 }
@@ -115,8 +122,20 @@ if (fs.existsSync(coreIosDir)) {
           changed = true;
         }
 
-        // Fix dynamic record cast in DynamicConvertibleType.swift
-        if (entry.name === 'DynamicConvertibleType.swift') {
+        // Fix ViewProps nonisolated init() in SwiftUIViewProps.swift
+        if (entry.name === 'SwiftUIViewProps.swift') {
+          if (content.includes('public required init() {}')) {
+            content = content.replace('public required init() {}', 'public required nonisolated init() {}');
+            changed = true;
+          }
+        }
+
+        // Fix performSynchronouslyOnMainThread -> performSynchronouslyOnMainActor in DynamicSwiftUIViewType.swift
+        if (entry.name === 'DynamicSwiftUIViewType.swift') {
+          if (content.includes('return try performSynchronouslyOnMainThread {')) {
+            content = content.replace('return try performSynchronouslyOnMainThread {', 'return try performSynchronouslyOnMainActor {');
+            changed = true;
+          }
           const oldCastBlock = `    if let recordType = innerType as? (any Record).Type {
       return try recordType.from(object: jsValue.asObject(), appContext: appContext)
     }`;
