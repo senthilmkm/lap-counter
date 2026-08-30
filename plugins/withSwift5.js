@@ -12,13 +12,14 @@ module.exports = function withSwift5(config) {
         const hook = `
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |config|
+        config.build_settings['SWIFT_VERSION'] = '5.0'
         config.build_settings['SWIFT_STRICT_CONCURRENCY'] = 'minimal'
         config.build_settings['OTHER_SWIFT_FLAGS'] ||= ['$(inherited)']
         config.build_settings['OTHER_SWIFT_FLAGS'] << '-suppress-warnings'
       end
     end
 `;
-        if (content.includes('post_install do |installer|') && !content.includes("config.build_settings['SWIFT_STRICT_CONCURRENCY']")) {
+        if (content.includes('post_install do |installer|') && !content.includes("config.build_settings['SWIFT_VERSION'] = '5.0'")) {
           content = content.replace('post_install do |installer|', 'post_install do |installer|' + hook);
           fs.writeFileSync(podfilePath, content, 'utf8');
         }

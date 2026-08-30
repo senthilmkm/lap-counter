@@ -131,24 +131,6 @@ if (fs.existsSync(coreIosDir)) {
           }
         }
 
-        // Fix ViewProps init() in SwiftUIViewProps.swift
-        if (entry.name === 'SwiftUIViewProps.swift') {
-          if (content.includes('public nonisolated required init() {}')) {
-            content = content.replace('public nonisolated required init() {}', 'public required init() {}');
-            changed = true;
-          } else if (content.includes('public required nonisolated init() {}')) {
-            content = content.replace('public required nonisolated init() {}', 'public required init() {}');
-            changed = true;
-          }
-          if (content.includes('public nonisolated required init(rawProps:')) {
-            content = content.replace('public nonisolated required init(rawProps:', 'public required init(rawProps:');
-            changed = true;
-          } else if (content.includes('public required nonisolated init(rawProps:')) {
-            content = content.replace('public required nonisolated init(rawProps:', 'public required init(rawProps:');
-            changed = true;
-          }
-        }
-
         // Fix ShadowNodeProxy init() in SwiftUIShadowNodeProxy.swift
         if (entry.name === 'SwiftUIShadowNodeProxy.swift') {
           if (content.includes('public nonisolated required init() {}')) {
@@ -160,47 +142,25 @@ if (fs.existsSync(coreIosDir)) {
           }
         }
 
-        // Fix SceneGeometry @MainActor in SceneGeometry.swift
-        if (entry.name === 'SceneGeometry.swift') {
-          if (content.includes('public enum SceneGeometry {') && !content.includes('@MainActor\npublic enum SceneGeometry')) {
-            content = content.replace('public enum SceneGeometry {', '@MainActor\npublic enum SceneGeometry {');
-            changed = true;
-          }
-        }
-
-        // Fix AutoSizingStack @MainActor in AutoSizingStack.swift
-        if (entry.name === 'AutoSizingStack.swift') {
-          if (content.includes('public struct AutoSizingStack<Content: SwiftUI.View>: SwiftUI.View {') && !content.includes('@MainActor\n  public struct AutoSizingStack')) {
-            content = content.replace('public struct AutoSizingStack<Content: SwiftUI.View>: SwiftUI.View {', '@MainActor\n  public struct AutoSizingStack<Content: SwiftUI.View>: SwiftUI.View {');
-            changed = true;
-          }
-        }
-
         // Fix DynamicSwiftUIViewType in DynamicSwiftUIViewType.swift
         if (entry.name === 'DynamicSwiftUIViewType.swift') {
-          const newCastBody = `    let box = NonisolatedUnsafeVar<Any?>(nil)
-    let resolveClosure = { @MainActor in
+          const newCastBody = `    let resolvedView = performSynchronouslyOnMainThread { () -> Any? in
       if let view = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.SwiftUIVirtualView<ViewType.Props, ViewType>.self) {
-        box.value = view.contentView
-      } else if let view = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.SwiftUIVirtualViewDev<ViewType.Props, ViewType>.self) {
-        box.value = view.contentView
-      } else if let provider = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.ViewWrapper.self),
-                let innerView = provider.getWrappedView() as? ViewType {
-        box.value = innerView
-      } else if let view = appContext.findView(withTag: viewTag, ofType: AnyExpoSwiftUIHostingView.self) {
-        box.value = view.getContentView()
+        return view.contentView
       }
+      if let view = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.SwiftUIVirtualViewDev<ViewType.Props, ViewType>.self) {
+        return view.contentView
+      }
+      if let provider = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.ViewWrapper.self),
+         let innerView = provider.getWrappedView() as? ViewType {
+        return innerView
+      }
+      if let view = appContext.findView(withTag: viewTag, ofType: AnyExpoSwiftUIHostingView.self) {
+        return view.getContentView()
+      }
+      return nil
     }
-    if Thread.isMainThread {
-      MainActor.assumeIsolated {
-        resolveClosure()
-      }
-    } else {
-      DispatchQueue.main.sync {
-        resolveClosure()
-      }
-    }
-    guard let result = box.value else {
+    guard let result = resolvedView else {
       throw Exceptions.SwiftUIViewNotFound((tag: viewTag, type: self.innerType.self))
     }
     return result`;
@@ -219,6 +179,9 @@ if (fs.existsSync(coreIosDir)) {
           } else if (content.includes('let resolvedView = performSynchronouslyOnMainThread {')) {
             content = content.replace(/    let resolvedView = performSynchronouslyOnMainThread \{[\s\S]*?    return result/m, newCastBody);
             changed = true;
+          } else if (content.includes('let box = NonisolatedUnsafeVar')) {
+            content = content.replace(/    let box = NonisolatedUnsafeVar[\s\S]*?    return result/m, newCastBody);
+            changed = true;
           } else if (content.includes('final class NonisolatedBox')) {
             content = content.replace(/    final class NonisolatedBox[\s\S]*?    return result/m, newCastBody);
             changed = true;
@@ -227,7 +190,7 @@ if (fs.existsSync(coreIosDir)) {
 
         // Fix SwiftUIHostingView in SwiftUIHostingView.swift
         if (entry.name === 'SwiftUIHostingView.swift') {
-          const cleanProto = `internal protocol AnyExpoSwiftUIHostingView {
+          const cleanProto = `internal protocol AnyExpoSwiftUIHostingView: AnyObject {
   func updateProps(_ rawProps: [String: Any])
   func getContentView() -> any ExpoSwiftUI.View
   func getProps() -> ExpoSwiftUI.ViewProps
@@ -236,26 +199,12 @@ if (fs.existsSync(coreIosDir)) {
             content = content.replace(/(?:@MainActor\n)?internal protocol AnyExpoSwiftUIHostingView[\s\S]*?\n\}/m, cleanProto);
             changed = true;
           }
-          if (content.includes('public func getContentView() -> any ExpoSwiftUI.View {\n      return contentView\n    }')) {
-            content = content.replace(
-              'public func getContentView() -> any ExpoSwiftUI.View {\n      return contentView\n    }',
-              'nonisolated public func getContentView() -> any ExpoSwiftUI.View {\n      return MainActor.assumeIsolated { contentView }\n    }'
-            );
-            changed = true;
-          }
-          if (content.includes('public func getProps() -> ExpoSwiftUI.ViewProps {\n      return props\n    }')) {
-            content = content.replace(
-              'public func getProps() -> ExpoSwiftUI.ViewProps {\n      return props\n    }',
-              'nonisolated public func getProps() -> ExpoSwiftUI.ViewProps {\n      return MainActor.assumeIsolated { props }\n    }'
-            );
-            changed = true;
-          }
         }
 
         // Fix ExpoSwiftUI in ExpoSwiftUI.swift
         if (entry.name === 'ExpoSwiftUI.swift') {
-          const cleanFocus = `internal protocol FocusableViewContainer {\n    func resignFirstResponderInSubtree()\n  }`;
-          const cleanWrapper = `public protocol ViewWrapper {\n    func getWrappedView() -> Any\n  }`;
+          const cleanFocus = `internal protocol FocusableViewContainer: AnyObject {\n    func resignFirstResponderInSubtree()\n  }`;
+          const cleanWrapper = `public protocol ViewWrapper: AnyObject {\n    func getWrappedView() -> Any\n  }`;
           if (content.includes('protocol FocusableViewContainer')) {
             content = content.replace(/internal protocol FocusableViewContainer[\s\S]*?\n  \}/m, cleanFocus);
             changed = true;
@@ -269,20 +218,16 @@ if (fs.existsSync(coreIosDir)) {
         // Fix SwiftUIVirtualView in SwiftUIVirtualView.swift
         if (entry.name === 'SwiftUIVirtualView.swift') {
           const newFocusExt = `extension ExpoSwiftUI.SwiftUIVirtualViewDev: ExpoSwiftUI.FocusableViewContainer {
-  nonisolated func resignFirstResponderInSubtree() {
-    MainActor.assumeIsolated {
-      virtualViewResignFirstResponderInSubtree(contentView: contentView, children: props.children)
-    }
+  func resignFirstResponderInSubtree() {
+    virtualViewResignFirstResponderInSubtree(contentView: contentView, children: props.children)
   }
 }`;
           const newWrapperExt = `extension ExpoSwiftUI.SwiftUIVirtualViewDev: ExpoSwiftUI.ViewWrapper {
-  nonisolated func getWrappedView() -> Any {
-    MainActor.assumeIsolated {
-      if let wrapper = contentView as? ExpoSwiftUI.ViewWrapper {
-        return wrapper.getWrappedView()
-      }
-      return contentView
+  func getWrappedView() -> Any {
+    if let wrapper = contentView as? ExpoSwiftUI.ViewWrapper {
+      return wrapper.getWrappedView()
     }
+    return contentView
   }
 }`;
           if (content.includes('extension ExpoSwiftUI.SwiftUIVirtualViewDev: ExpoSwiftUI.FocusableViewContainer {')) {
@@ -291,6 +236,24 @@ if (fs.existsSync(coreIosDir)) {
           }
           if (content.includes('extension ExpoSwiftUI.SwiftUIVirtualViewDev: ExpoSwiftUI.ViewWrapper {')) {
             content = content.replace(/extension ExpoSwiftUI\.SwiftUIVirtualViewDev: ExpoSwiftUI\.ViewWrapper \{[\s\S]*?\n\}/m, newWrapperExt);
+            changed = true;
+          }
+        }
+
+        // Fix Utilities in Utilities.swift
+        if (entry.name === 'Utilities.swift') {
+          const newMainThreadFn = `internal func performSynchronouslyOnMainThread<Result>(_ closure: () -> Result) -> Result {
+  if Thread.isMainThread {
+    return closure()
+  }
+  var result: Result?
+  DispatchQueue.main.sync {
+    result = closure()
+  }
+  return result!
+}`;
+          if (content.includes('internal func performSynchronouslyOnMainThread<Result>')) {
+            content = content.replace(/internal func performSynchronouslyOnMainThread<Result>[\s\S]*?\n\}/m, newMainThreadFn);
             changed = true;
           }
         }
