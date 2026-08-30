@@ -87,7 +87,8 @@
       ],
       "expo-sqlite",
       "expo-sharing",
-      "expo-web-browser"
+      "expo-web-browser",
+      "./plugins/withSwift5.js"
     ],
     "extra": {
       "eas": {

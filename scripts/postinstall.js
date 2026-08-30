@@ -607,6 +607,7 @@ let package = Package(
         .interoperabilityMode(.Cxx),
 
         .unsafeFlags([
+          "-strict-concurrency=minimal",
           "-no-verify-emitted-module-interface",
           "-I", generatedDir,
           "-Xfrontend",
