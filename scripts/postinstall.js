@@ -176,29 +176,17 @@ if (fs.existsSync(coreIosDir)) {
           }
         }
 
-        // Fix ViewDefinition extension @MainActor in ViewDefinition.swift
+        // Fix ViewDefinition extension in ViewDefinition.swift
         if (entry.name === 'ViewDefinition.swift') {
           if (content.includes('extension UIView: @MainActor AnyArgument {')) {
             content = content.replace('extension UIView: @MainActor AnyArgument {', 'extension UIView: AnyArgument {');
             changed = true;
           }
           if (content.includes('extension UIView: AnyArgument {\n  public static func getDynamicType()')) {
-            content = content.replace(
-              'extension UIView: AnyArgument {\n  public static func getDynamicType()',
-              'extension UIView: AnyArgument {\n  nonisolated static func getDynamicType()'
-            );
+            content = content.replace(/extension UIView: AnyArgument \{[\s\S]*?\n\}/m, 'extension UIView: AnyArgument {\n  public static func getDynamicType() -> AnyDynamicType {\n    return DynamicViewType(innerType: Self.self)\n  }\n}');
             changed = true;
-          } else if (content.includes('extension UIView: AnyArgument {\n  nonisolated public static func getDynamicType()')) {
-            content = content.replace(
-              'extension UIView: AnyArgument {\n  nonisolated public static func getDynamicType()',
-              'extension UIView: AnyArgument {\n  nonisolated static func getDynamicType()'
-            );
-            changed = true;
-          } else if (content.includes('extension UIView: AnyArgument {\n  public nonisolated static func getDynamicType()')) {
-            content = content.replace(
-              'extension UIView: AnyArgument {\n  public nonisolated static func getDynamicType()',
-              'extension UIView: AnyArgument {\n  nonisolated static func getDynamicType()'
-            );
+          } else if (content.includes('extension UIView: AnyArgument {\n  nonisolated')) {
+            content = content.replace(/extension UIView: AnyArgument \{[\s\S]*?\n\}/m, 'extension UIView: AnyArgument {\n  public static func getDynamicType() -> AnyDynamicType {\n    return DynamicViewType(innerType: Self.self)\n  }\n}');
             changed = true;
           }
         }
@@ -218,6 +206,9 @@ if (fs.existsSync(coreIosDir)) {
             changed = true;
           } else if (content.includes('extension ExpoSwiftUIView {\n  public nonisolated static func getDynamicType()')) {
             content = content.replace('extension ExpoSwiftUIView {\n  public nonisolated static func getDynamicType()', 'extension ExpoSwiftUIView {\n  public static func getDynamicType()');
+            changed = true;
+          } else if (content.includes('extension ExpoSwiftUIView {\n  nonisolated static func getDynamicType()')) {
+            content = content.replace('extension ExpoSwiftUIView {\n  nonisolated static func getDynamicType()', 'extension ExpoSwiftUIView {\n  public static func getDynamicType()');
             changed = true;
           } else if (content.includes('  nonisolated public static func getDynamicType() -> AnyDynamicType {')) {
             content = content.replace('  nonisolated public static func getDynamicType() -> AnyDynamicType {', '  public static func getDynamicType() -> AnyDynamicType {');
@@ -352,22 +343,13 @@ if (fs.existsSync(coreIosDir)) {
 
         // Fix AnyExpoSwiftUIHostingView in SwiftUIHostingView.swift methods to be @MainActor
         if (entry.name === 'SwiftUIHostingView.swift') {
-          if (content.includes('@MainActor\ninternal protocol AnyExpoSwiftUIHostingView {')) {
-            content = content.replace('@MainActor\ninternal protocol AnyExpoSwiftUIHostingView {', 'internal protocol AnyExpoSwiftUIHostingView {');
-            changed = true;
-          }
-          const oldProto = `internal protocol AnyExpoSwiftUIHostingView {
-  func updateProps(_ rawProps: [String: Any])
-  func getContentView() -> any ExpoSwiftUI.View
-  func getProps() -> ExpoSwiftUI.ViewProps
-}`;
-          const newProto = `internal protocol AnyExpoSwiftUIHostingView {
+          const newProto = `internal protocol AnyExpoSwiftUIHostingView: AnyObject {
   @MainActor func updateProps(_ rawProps: [String: Any])
   @MainActor func getContentView() -> any ExpoSwiftUI.View
   @MainActor func getProps() -> ExpoSwiftUI.ViewProps
 }`;
-          if (content.includes(oldProto)) {
-            content = content.replace(oldProto, newProto);
+          if (content.includes('internal protocol AnyExpoSwiftUIHostingView')) {
+            content = content.replace(/(?:@MainActor\n)?internal protocol AnyExpoSwiftUIHostingView[\s\S]*?\n\}/m, newProto);
             changed = true;
           }
         }
