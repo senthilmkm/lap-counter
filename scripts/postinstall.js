@@ -419,7 +419,7 @@ public:
   using PropNameIds = std::vector<facebook::jsi::PropNameID>;
   using Getter = facebook::jsi::Value (*)(Context, const char *_Nonnull name);
   using Setter = void (*)(Context, const char *_Nonnull name, void *_Nonnull value);
-  using PropertyNamesGetter = PropNameIds (*)(Context);
+  using PropertyNamesGetter = void (*)(Context, PropNameIds &out);
   using Deallocator = void (*)(Context);
 
   HostObjectCallbacks(Context context, Getter getter, Setter _Nullable setter, PropertyNamesGetter propertyNamesGetter, Deallocator deallocator)
@@ -440,7 +440,11 @@ public:
   }
 
   inline PropNameIds getPropertyNames() const {
-    return _propertyNamesGetter(_context);
+    PropNameIds names;
+    if (_propertyNamesGetter != nullptr) {
+      _propertyNamesGetter(_context, names);
+    }
+    return names;
   }
 
   inline void dealloc() {
@@ -455,8 +459,8 @@ private:
   Deallocator _deallocator;
 };
 
-inline void addPropNameId(HostObjectCallbacks::PropNameIds &vector, facebook::jsi::IRuntime &runtime, const char *name) {
-  vector.push_back(facebook::jsi::PropNameID::forUtf8(runtime, name));
+inline void addPropNameId(HostObjectCallbacks::PropNameIds * _Nonnull vector, facebook::jsi::IRuntime &runtime, const char * _Nonnull name) {
+  vector->push_back(facebook::jsi::PropNameID::forUtf8(runtime, name));
 }
 
 } // namespace expo
@@ -464,7 +468,7 @@ inline void addPropNameId(HostObjectCallbacks::PropNameIds &vector, facebook::js
 #endif // __cplusplus
 `;
   fs.writeFileSync(hostCallbacksPath, content, 'utf8');
-  console.log('✅ Patched HostObjectCallbacks.h with addPropNameId helper');
+  console.log('✅ Patched HostObjectCallbacks.h with out-parameter PropertyNamesGetter');
 }
 
 const hostObjectPath = path.join(cxxIncludeDir, 'HostObject.h');
@@ -745,10 +749,19 @@ extension Task where Failure == any Error {
           changed = true;
         }
 
-        if (content.includes('vector.push_back(') || content.includes('let propNameId = facebook.jsi.PropNameID.forUtf8(')) {
+        if (content.includes('func propertyNamesGetter(')) {
           content = content.replace(
-            /for\s+propertyName\s+in\s+propertyNames\s*\{[\s\S]*?vector\.push_back\([^\)]+\)\s*\}/,
-            'for propertyName in propertyNames {\n        expo.addPropNameId(&vector, runtime.pointee, propertyName)\n      }'
+            /func\s+propertyNamesGetter\(context:\s*UnsafeMutableRawPointer\)[^{]*\{[\s\S]*?return\s+vector\s*\}/,
+            `func propertyNamesGetter(context: UnsafeMutableRawPointer, outVector: UnsafeMutablePointer<expo.HostObjectCallbacks.PropNameIds>) {
+      let context = Unmanaged<HostObjectContext>.fromOpaque(context).takeUnretainedValue()
+      guard let runtime = context.runtime else { return }
+      let propertyNames: [String] = JavaScriptActor.assumeIsolated {
+        return context.getPropertyNames()
+      }
+      for propertyName in propertyNames {
+        expo.addPropNameId(outVector, runtime.pointee, propertyName)
+      }
+    }`
           );
           changed = true;
         }
