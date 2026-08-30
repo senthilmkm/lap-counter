@@ -21,7 +21,7 @@ const path = require('path');
 //
 // 4. expo-modules-jsi C++ Headers:
 //    - RuntimeScheduler.h: Add #define SWIFT_RETURNS_RETAINED __attribute__((swift_attr("returns_retained"))).
-//    - RetainedSwiftPointer.h & HostFunctionClosure.h: Add SWIFT_RETURNS_UNRETAINED and function pointer signatures.
+//    - RetainedSwiftPointer.h & HostFunctionClosure.h: Add createHostFunctionClosure C++ factory function.
 //
 // 5. expo-modules-jsi Swift sources:
 //    - Replace 'weak let' with 'nonisolated(unsafe) weak var' (for Swift 6.0 Sendable compatibility).
@@ -31,6 +31,7 @@ const path = require('path');
 //    - Remove 'consuming:' label from vector.push_back (Swift 6.0 C++ stdlib interop).
 //    - Strip any trailing commas before ')', ']', '}' (Swift 6.0 syntax compatibility).
 //    - Patch JavaScriptActor.swift with clean withoutActuallyEscaping.
+//    - Update createFunctionClosure to return UnsafeMutablePointer<expo.HostFunctionClosure>.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -332,14 +333,6 @@ if (fs.existsSync(retainedPointerPath)) {
 #include <memory>
 #include <swift/bridging>
 
-#ifndef SWIFT_RETURNS_UNRETAINED
-#if __has_attribute(swift_attr)
-#define SWIFT_RETURNS_UNRETAINED __attribute__((swift_attr("returns_unretained")))
-#else
-#define SWIFT_RETURNS_UNRETAINED
-#endif
-#endif
-
 namespace expo {
 
 class RetainedSwiftPointer {
@@ -347,20 +340,19 @@ public:
   using Context = void *_Nonnull;
   using Deallocator = void (*)(Context);
 
-  SWIFT_RETURNS_UNRETAINED RetainedSwiftPointer(Context context, Deallocator deallocator) : _context(context), _deallocator(deallocator) {}
+  RetainedSwiftPointer(Context context, Deallocator deallocator) : _context(context), _deallocator(deallocator) {}
 
   virtual ~RetainedSwiftPointer() = default;
 
 protected:
   Context _context;
   Deallocator _deallocator;
-
-} SWIFT_IMMORTAL_REFERENCE;
+};
 
 } // namespace expo
 `;
   fs.writeFileSync(retainedPointerPath, content, 'utf8');
-  console.log('✅ Patched RetainedSwiftPointer.h with returns_unretained attribute');
+  console.log('✅ Patched RetainedSwiftPointer.h');
 }
 
 // 4c. HostFunctionClosure.h
@@ -373,21 +365,13 @@ if (fs.existsSync(hostClosurePath)) {
 
 #include "RetainedSwiftPointer.h"
 
-#ifndef SWIFT_RETURNS_UNRETAINED
-#if __has_attribute(swift_attr)
-#define SWIFT_RETURNS_UNRETAINED __attribute__((swift_attr("returns_unretained")))
-#else
-#define SWIFT_RETURNS_UNRETAINED
-#endif
-#endif
-
 namespace expo {
 
 class HostFunctionClosure final : public RetainedSwiftPointer {
 public:
   using Closure = facebook::jsi::Value (*)(Context context, const facebook::jsi::Value *_Nonnull thisValue, const facebook::jsi::Value *_Nonnull args, size_t count);
 
-  SWIFT_RETURNS_UNRETAINED HostFunctionClosure(Context context, Closure closure, Deallocator deallocator) : RetainedSwiftPointer(context, deallocator), _closure(closure) {};
+  HostFunctionClosure(Context context, Closure closure, Deallocator deallocator) : RetainedSwiftPointer(context, deallocator), _closure(closure) {}
 
   virtual ~HostFunctionClosure() {
     _deallocator(_context);
@@ -399,13 +383,16 @@ public:
 
 private:
   Closure _closure;
+};
 
-} SWIFT_IMMORTAL_REFERENCE;
+inline HostFunctionClosure * _Nonnull createHostFunctionClosure(void * _Nonnull context, HostFunctionClosure::Closure closure, RetainedSwiftPointer::Deallocator deallocator) {
+  return new HostFunctionClosure(context, closure, deallocator);
+}
 
 } // namespace expo
 `;
   fs.writeFileSync(hostClosurePath, content, 'utf8');
-  console.log('✅ Patched HostFunctionClosure.h with returns_unretained attribute');
+  console.log('✅ Patched HostFunctionClosure.h with createHostFunctionClosure factory');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -469,6 +456,21 @@ function patchSwiftFilesRecursively(dir) {
           (match) => match.replace('public var message', 'var message')
         );
         changed = true;
+      }
+
+      // Fix JavaScriptRuntime.swift HostFunctionClosure creation
+      if (entry.name === 'JavaScriptRuntime.swift') {
+        if (content.includes('return expo.HostFunctionClosure(context, call, deallocate)')) {
+          content = content.replace(
+            /->\s*expo\.HostFunctionClosure\s*\{/g,
+            '-> UnsafeMutablePointer<expo.HostFunctionClosure> {'
+          );
+          content = content.replace(
+            /return\s+expo\.HostFunctionClosure\(context,\s*call,\s*deallocate\)/g,
+            'return expo.createHostFunctionClosure(context, call, deallocate)'
+          );
+          changed = true;
+        }
       }
 
       // Fix JavaScriptActor.swift for Swift 6.0
@@ -568,7 +570,7 @@ internal final class JavaScriptRuntimeExecutor: JavaScriptExecutor, @unchecked S
 
 if (fs.existsSync(jsiSourcesDir)) {
   patchSwiftFilesRecursively(jsiSourcesDir);
-  console.log('✅ Patched expo-modules-jsi Swift files (nonisolated weak var, Escapable, CppError, JavaScriptActor, typed throws, consuming: label)');
+  console.log('✅ Patched expo-modules-jsi Swift files (nonisolated weak var, Escapable, CppError, JavaScriptActor, typed throws, consuming: label, createHostFunctionClosure)');
 } else {
   console.log('⚠️  expo-modules-jsi Sources dir not found');
 }
