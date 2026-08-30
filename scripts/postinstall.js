@@ -23,6 +23,7 @@ const path = require('path');
 //    - RuntimeScheduler.h: Add createRuntimeScheduler factory functions.
 //    - RetainedSwiftPointer.h & HostFunctionClosure.h: Add createHostFunctionClosure factory.
 //    - HostObjectCallbacks.h & HostObject.h: Add makeHostObject factory function taking IRuntime.
+//    - JSIUtils.h: Replace std::make_shared<MemoryBuffer> with std::shared_ptr<MemoryBuffer>(new ...) to fix __construct_at.
 //
 // 5. expo-modules-jsi Swift sources:
 //    - Replace 'weak let' with 'nonisolated(unsafe) weak var' (for Swift 6.0 Sendable compatibility).
@@ -535,6 +536,31 @@ inline facebook::jsi::Object makeHostObject(
 `;
   fs.writeFileSync(hostObjectPath, hostObjectClean, 'utf8');
   console.log('✅ Patched HostObject.h with makeHostObject factory function (IRuntime & new HostObject)');
+}
+
+// 4e. JSIUtils.h (fix std::make_shared<MemoryBuffer> which triggers __construct_at)
+const jsiUtilsPath = path.join(cxxIncludeDir, 'JSIUtils.h');
+if (fs.existsSync(jsiUtilsPath)) {
+  let content = fs.readFileSync(jsiUtilsPath, 'utf8');
+  let changed = false;
+  if (content.includes('std::make_shared<MemoryBuffer>')) {
+    content = content
+      .replace(
+        'std::make_shared<MemoryBuffer>(data, size, [data]() { delete[] data; })',
+        'std::shared_ptr<MemoryBuffer>(new MemoryBuffer(data, size, [data]() { delete[] data; }))'
+      )
+      .replace(
+        /std::make_shared<MemoryBuffer>\(data,\s*size,\s*\[cleanupContext,\s*cleanupFunction\]\(\)\s*\{[\s\S]*?\}\)/g,
+        'std::shared_ptr<MemoryBuffer>(new MemoryBuffer(data, size, [cleanupContext, cleanupFunction]() {\n    cleanupFunction(cleanupContext);\n  }))'
+      );
+    changed = true;
+  }
+  if (changed) {
+    fs.writeFileSync(jsiUtilsPath, content, 'utf8');
+    console.log('✅ Patched JSIUtils.h with std::shared_ptr<MemoryBuffer>(new MemoryBuffer(...))');
+  } else {
+    console.log('✔  JSIUtils.h already up-to-date');
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
