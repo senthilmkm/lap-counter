@@ -95,6 +95,52 @@ for (const podspecPath of podspecsToFix) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 1c. Patch expo-modules-core Swift files for Swift 6 existential protocol syntax ('any Record')
+// ─────────────────────────────────────────────────────────────────────────────
+const coreIosDir = path.join(__dirname, '..', 'node_modules', 'expo-modules-core', 'ios');
+if (fs.existsSync(coreIosDir)) {
+  function patchCoreSwiftFiles(dir) {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        patchCoreSwiftFiles(fullPath);
+      } else if (entry.name.endsWith('.swift')) {
+        let content = fs.readFileSync(fullPath, 'utf8');
+        let changed = false;
+
+        if (content.includes('as? Record') && !content.includes('as? any Record')) {
+          content = content.replace(/as\?\s+Record\b/g, 'as? any Record');
+          changed = true;
+        }
+        if (content.includes('[Record]')) {
+          content = content.replace(/\[Record\]/g, '[any Record]');
+          changed = true;
+        }
+        if (content.includes('fieldsOf(_ record: Record)')) {
+          content = content.replace('fieldsOf(_ record: Record)', 'fieldsOf(_ record: any Record)');
+          changed = true;
+        }
+        if (content.includes('callAsFunction(_ payload: Record)')) {
+          content = content.replace('callAsFunction(_ payload: Record)', 'callAsFunction(_ payload: any Record)');
+          changed = true;
+        }
+        if (content.includes('innerType as? any Record.Type')) {
+          content = content.replace('innerType as? any Record.Type', 'innerType as? (any Record).Type');
+          changed = true;
+        }
+
+        if (changed) {
+          fs.writeFileSync(fullPath, content, 'utf8');
+          console.log(`✅ Patched ${entry.name} in expo-modules-core (any Record syntax)`);
+        }
+      }
+    }
+  }
+  patchCoreSwiftFiles(coreIosDir);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 2. Patch @expo/expo-modules-macros-plugin Package.swift
 // ─────────────────────────────────────────────────────────────────────────────
 const macroPackageSwift = path.join(
