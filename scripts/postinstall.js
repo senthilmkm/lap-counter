@@ -185,22 +185,16 @@ if (fs.existsSync(coreIosDir)) {
           const cleanProto = `internal protocol AnyExpoSwiftUIHostingView: AnyObject {
   func getContentView() -> any ExpoSwiftUI.View
   func getProps() -> ExpoSwiftUI.ViewProps
+  func updateProps(_ props: ExpoSwiftUI.ViewProps)
 }`;
           if (content.includes('internal protocol AnyExpoSwiftUIHostingView')) {
             content = content.replace(/(?:@MainActor\n)?internal protocol AnyExpoSwiftUIHostingView[\s\S]*?\n\}/m, cleanProto);
             changed = true;
           }
-          if (content.includes('public func getContentView() -> any ExpoSwiftUI.View {\n      return contentView\n    }')) {
+          if (!content.includes('public func updateProps(_ props: ExpoSwiftUI.ViewProps)')) {
             content = content.replace(
-              'public func getContentView() -> any ExpoSwiftUI.View {\n      return contentView\n    }',
-              'nonisolated public func getContentView() -> any ExpoSwiftUI.View {\n      return MainActor.assumeIsolated { contentView }\n    }'
-            );
-            changed = true;
-          }
-          if (content.includes('public func getProps() -> ExpoSwiftUI.ViewProps {\n      return props\n    }')) {
-            content = content.replace(
-              'public func getProps() -> ExpoSwiftUI.ViewProps {\n      return props\n    }',
-              'nonisolated public func getProps() -> ExpoSwiftUI.ViewProps {\n      return MainActor.assumeIsolated { props }\n    }'
+              'public override func updateProps(_ rawProps: [String: Any]) {',
+              'public func updateProps(_ props: ExpoSwiftUI.ViewProps) {\n      if let props = props as? Props {\n        self.props.children = props.children\n        self.props.objectWillChange.send()\n      }\n    }\n\n    public override func updateProps(_ rawProps: [String: Any]) {'
             );
             changed = true;
           }
