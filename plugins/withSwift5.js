@@ -10,6 +10,10 @@ module.exports = function withSwift5(config) {
       if (fs.existsSync(podfilePath)) {
         let content = fs.readFileSync(podfilePath, 'utf8');
         const hook = `
+    installer.pods_project.build_configurations.each do |config|
+      config.build_settings['SWIFT_VERSION'] = '5.9'
+      config.build_settings['SWIFT_STRICT_CONCURRENCY'] = 'minimal'
+    end
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |config|
         config.build_settings['SWIFT_VERSION'] = '5.9'
@@ -21,9 +25,15 @@ module.exports = function withSwift5(config) {
         config.build_settings['OTHER_SWIFT_FLAGS'] << '-disable-actor-data-race-checks'
       end
     end
+    installer.pod_targets.each do |target|
+      target.build_settings.each do |config_name, settings|
+        settings['SWIFT_VERSION'] = '5.9'
+        settings['SWIFT_STRICT_CONCURRENCY'] = 'minimal'
+      end
+    end
 `;
-        if (content.includes('post_install do |installer|') && !content.includes("SWIFT_VERSION'] = '5.9'")) {
-          content = content.replace('post_install do |installer|', 'post_install do |installer|' + hook);
+        if (content.includes('post_install do |installer|')) {
+          content = content.replace(/post_install do \|installer\|[\s\S]*?(?=\n    __apply_Xcode_12_5_M1_post_install_workaround|\n  end)/, 'post_install do |installer|' + hook);
           fs.writeFileSync(podfilePath, content, 'utf8');
         }
       }
