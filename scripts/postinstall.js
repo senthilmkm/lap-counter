@@ -52,6 +52,32 @@ if (fs.existsSync(rnDepsPackageSwift)) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 1b. Force expo-modules-core to compile from source (disable prebuilt Swift 6.3.1 xcframework)
+// ─────────────────────────────────────────────────────────────────────────────
+const corePrebuildsDir = path.join(
+  __dirname, '..', 'node_modules', 'expo-modules-core', 'prebuilds'
+);
+if (fs.existsSync(corePrebuildsDir)) {
+  fs.rmSync(corePrebuildsDir, { recursive: true, force: true });
+  console.log('✅ Removed expo-modules-core prebuilds directory');
+}
+
+const corePodspec = path.join(
+  __dirname, '..', 'node_modules', 'expo-modules-core', 'ExpoModulesCore.podspec'
+);
+if (fs.existsSync(corePodspec)) {
+  let content = fs.readFileSync(corePodspec, 'utf8');
+  if (content.includes('Expo::PackagesConfig.instance.try_link_with_prebuilt_xcframework(s)')) {
+    content = content.replace(
+      /if\s*\(!Expo::PackagesConfig\.instance\.try_link_with_prebuilt_xcframework\(s\)\)/g,
+      'if (true)'
+    );
+    fs.writeFileSync(corePodspec, content, 'utf8');
+    console.log('✅ Patched ExpoModulesCore.podspec to build from source');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 2. Patch @expo/expo-modules-macros-plugin Package.swift
 // ─────────────────────────────────────────────────────────────────────────────
 const macroPackageSwift = path.join(
@@ -1279,9 +1305,13 @@ if (fs.existsSync(buildXcframeworkScript)) {
     );
     changedScript = true;
   }
+  if (scriptContent.includes('BUILD_LIBRARY_FOR_DISTRIBUTION=YES')) {
+    scriptContent = scriptContent.replace('BUILD_LIBRARY_FOR_DISTRIBUTION=YES', 'BUILD_LIBRARY_FOR_DISTRIBUTION=NO');
+    changedScript = true;
+  }
   if (changedScript) {
     fs.writeFileSync(buildXcframeworkScript, scriptContent, 'utf8');
-    console.log('✅ Patched build-xcframework.sh (clean syntax, removed -quiet, robust Swift.h copy)');
+    console.log('✅ Patched build-xcframework.sh (clean syntax, removed -quiet, BUILD_LIBRARY_FOR_DISTRIBUTION=NO, robust Swift.h copy)');
   }
 }
 
