@@ -26,7 +26,9 @@ const path = require('path');
 //    - Replace 'weak let' with 'nonisolated(unsafe) weak var' (for Swift 6.0 Sendable compatibility).
 //    - Remove explicit 'Escapable' protocol conformance.
 //    - Remove 'public' from 'extension expo.CppError' members (C++ types do not support library evolution).
-//    - Patch JavaScriptActor.swift with withoutActuallyEscaping & Self.checkIsolated().
+//    - Convert typed throws 'throws(...)' to standard 'throws' (Swift 6.0 parser compatibility).
+//    - Strip any trailing commas before ')', ']', '}' (Swift 6.0 syntax compatibility).
+//    - Patch JavaScriptActor.swift with clean withoutActuallyEscaping.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -250,11 +252,7 @@ if (fs.existsSync(runtimeSchedulerPath)) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 5. Patch expo-modules-jsi Swift sources for Swift 6.0 compatibility:
-//    - 'weak let' / 'weak var' -> 'nonisolated(unsafe) weak var' (Sendable safety)
-//    - Remove ', Escapable'
-//    - In JavaScriptError.swift, make 'extension expo.CppError' member internal
-//    - In JavaScriptActor.swift, rewrite assumeIsolated to use withoutActuallyEscaping & Self.checkIsolated()
+// 5. Patch expo-modules-jsi Swift sources for Swift 6.0 compatibility
 // ─────────────────────────────────────────────────────────────────────────────
 const jsiSourcesDir = path.join(
   __dirname, '..', 'node_modules', 'expo-modules-jsi', 'apple', 'Sources', 'ExpoModulesJSI'
@@ -285,6 +283,19 @@ function patchSwiftFilesRecursively(dir) {
         content = content
           .replace(/,\s*Escapable\b/g, '')
           .replace(/:\s*Escapable\b/g, '');
+        changed = true;
+      }
+
+      // Convert typed throws 'throws(...)' -> 'throws' for Swift 6.0 parser compatibility
+      if (content.includes('throws(')) {
+        content = content.replace(/\bthrows\s*\([^)]+\)/g, 'throws');
+        changed = true;
+      }
+
+      // Strip any trailing commas before ')', ']', '}'
+      const commaFixed = content.replace(/,\s*([\)\]\}])/g, '$1');
+      if (commaFixed !== content) {
+        content = commaFixed;
         changed = true;
       }
 
@@ -394,7 +405,7 @@ internal final class JavaScriptRuntimeExecutor: JavaScriptExecutor, @unchecked S
 
 if (fs.existsSync(jsiSourcesDir)) {
   patchSwiftFilesRecursively(jsiSourcesDir);
-  console.log('✅ Patched expo-modules-jsi Swift files (nonisolated weak var, Escapable, CppError, JavaScriptActor)');
+  console.log('✅ Patched expo-modules-jsi Swift files (nonisolated weak var, Escapable, CppError, JavaScriptActor, typed throws)');
 } else {
   console.log('⚠️  expo-modules-jsi Sources dir not found');
 }

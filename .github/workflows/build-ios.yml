@@ -56,3 +56,11 @@ jobs:
       - name: 📤 Submit IPA to Apple App Store Connect
         run: |
           eas submit --platform ios --profile production --path ./Orbit.ipa --non-interactive
+
+      - name: 🔍 Dump Detailed Xcode Build Logs on Failure
+        if: failure()
+        run: |
+          echo "=== Searching for Xcode build logs ==="
+          find ~/Library/Logs -name "*.log" 2>/dev/null -exec echo "=== Log: {} ===" \; -exec tail -n 100 {} \; || true
+          find /Users/runner/Library/Logs -name "*.log" 2>/dev/null -exec echo "=== Log: {} ===" \; -exec tail -n 100 {} \; || true
+          find /var/folders -name "*build*.log" 2>/dev/null -exec echo "=== Log: {} ===" \; -exec tail -n 100 {} \; || true
