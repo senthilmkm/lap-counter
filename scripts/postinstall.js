@@ -765,6 +765,22 @@ extension Task where Failure == any Error {
           );
           changed = true;
         }
+
+        if (content.includes('let object = createObject()')) {
+          content = content.replace(
+            'let object = createObject()',
+            'let object = self.createObject()'
+          );
+          changed = true;
+        }
+
+        if (content.includes('global().setProperty(')) {
+          content = content.replace(
+            'global().setProperty(',
+            'self.global().setProperty('
+          );
+          changed = true;
+        }
       }
 
       // Fix JavaScriptActor.swift for Swift 6.0
