@@ -63,11 +63,11 @@ jobs:
       - name: 🔍 Dump Detailed Xcode Build Logs on Failure
         if: failure()
         run: |
-          echo "=== Searching for EAS Xcode / Fastlane / Gym build error logs ==="
-          find -L /Users/runner/work /private/var/folders /tmp ~/.eas ~/Library/Logs -type f \( -name "*.log" -o -name "*.txt" \) 2>/dev/null | while read logfile; do
-            if grep -q -E "error:|fatal error:|BUILD FAILED" "$logfile" 2>/dev/null; then
-              echo "=== Logfile: $logfile ==="
-              grep -E -C 5 "error:|fatal error:|BUILD FAILED" "$logfile" | head -n 100 || true
-            fi
+          echo "=== Searching for Xcode / Gym / Fastlane build logs ==="
+          find -L /Users/runner/work /private/var/folders /tmp ~/.eas ~/Library/Logs -type f \( -name "*gym*.log" -o -name "*xcodebuild*.log" -o -name "*fastlane*.log" -o -name "build.log" \) 2>/dev/null | while read logfile; do
+            echo "======================================================================"
+            echo "Logfile: $logfile"
+            echo "======================================================================"
+            tail -n 150 "$logfile" || true
           done
 
