@@ -782,9 +782,9 @@ extension Task where Failure == any Error {
           changed = true;
         }
 
-        if (content.includes('let jsiValue = try capturingCppErrors {')) {
+        if (content.includes('capturingCppErrors')) {
           content = content.replace(
-            /let\s+jsiValue\s*=\s*try\s+capturingCppErrors\s*\{[\s\S]*?return\s+expo\.evaluateJavaScript\([^\)]+\)\s*\}/,
+            /let\s+jsiValue\s*=\s*try\s+capturingCppErrors\s*\{[\s\S]*?return\s+expo\.evaluateJavaScript[\s\S]*?\}/,
             `let jsiValue = expo.evaluateJavaScript(pointee, stringBuffer, std.string(label ?? "<<evaluated>>"))
       try checkCppError()`
           );
