@@ -102,6 +102,42 @@ if (fs.existsSync(exJsiUtilsH)) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 1d. Patch expo-task-manager TaskManagerModule.swift (EXTaskManagerInterface & nullability)
+// ─────────────────────────────────────────────────────────────────────────────
+const taskManagerModuleSwift = path.join(__dirname, '..', 'node_modules', 'expo-task-manager', 'ios', 'TaskManagerModule.swift');
+if (fs.existsSync(taskManagerModuleSwift)) {
+  let content = fs.readFileSync(taskManagerModuleSwift, 'utf8');
+  let changed = false;
+
+  if (content.includes('withUrl: findAppUrl()')) {
+    content = content.replace('withUrl: findAppUrl()', 'withUrl: findAppUrl() ?? ""');
+    changed = true;
+  }
+  if (content.includes('appUrl: appUrl,')) {
+    content = content.replace('appUrl: appUrl,', 'appUrl: appUrl ?? "",');
+    changed = true;
+  }
+  if (content.includes('func task(withName taskName: TaskName, hasConsumerOf consumerClass: AnyClass)')) {
+    content = content.replace(
+      'func task(withName taskName: TaskName, hasConsumerOf consumerClass: AnyClass)',
+      'func task(withName taskName: TaskName, hasConsumerOfClass consumerClass: AnyClass)'
+    );
+    changed = true;
+  }
+  if (content.includes('func execute(withBody body: [String: Any])')) {
+    content = content.replace(
+      'func execute(withBody body: [String: Any])',
+      'func execute(withBody body: [AnyHashable: Any])'
+    );
+    changed = true;
+  }
+  if (changed) {
+    fs.writeFileSync(taskManagerModuleSwift, content, 'utf8');
+    console.log('✅ Patched TaskManagerModule.swift (EXTaskManagerInterface conformance)');
+  }
+}
+
 const coreIosDir = path.join(__dirname, '..', 'node_modules', 'expo-modules-core', 'ios');
 if (fs.existsSync(coreIosDir)) {
   function patchCoreSwiftFiles(dir) {
