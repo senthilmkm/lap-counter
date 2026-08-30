@@ -210,6 +210,30 @@ if (fs.existsSync(coreIosDir)) {
           }
         }
 
+        // Fix ExpoReactDelegate MainActor & UIKit in ExpoReactDelegate.swift
+        if (entry.name === 'ExpoReactDelegate.swift') {
+          if (!content.includes('import UIKit')) {
+            content = "import UIKit\nimport _Concurrency\n" + content;
+            changed = true;
+          }
+          if (content.includes('public class ExpoReactDelegate: NSObject {') && !content.includes('@MainActor')) {
+            content = content.replace('public class ExpoReactDelegate: NSObject {', '@MainActor\npublic class ExpoReactDelegate: NSObject {');
+            changed = true;
+          }
+        }
+
+        // Fix ExpoReactDelegateHandler MainActor & UIKit in ExpoReactDelegateHandler.swift
+        if (entry.name === 'ExpoReactDelegateHandler.swift') {
+          if (!content.includes('import UIKit')) {
+            content = "import UIKit\nimport _Concurrency\n" + content;
+            changed = true;
+          }
+          if (content.includes('open class ExpoReactDelegateHandler: NSObject {') && !content.includes('@MainActor')) {
+            content = content.replace('open class ExpoReactDelegateHandler: NSObject {', '@MainActor\nopen class ExpoReactDelegateHandler: NSObject {');
+            changed = true;
+          }
+        }
+
         // Fix performSynchronouslyOnMainThread -> performSynchronouslyOnMainActor in DynamicSwiftUIViewType.swift
         if (entry.name === 'DynamicSwiftUIViewType.swift') {
           if (content.includes('return try performSynchronouslyOnMainThread {')) {
