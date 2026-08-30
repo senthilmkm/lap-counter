@@ -87,8 +87,21 @@ for (const podspecPath of podspecsToFix) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 1c. Patch expo-modules-core Swift files (import _Concurrency, weak var, any Record, @MainActor protocols)
+// 1c. Patch EXJSIUtils.h (add #import <ReactCommon/CallInvoker.h>)
 // ─────────────────────────────────────────────────────────────────────────────
+const exJsiUtilsH = path.join(__dirname, '..', 'node_modules', 'expo-modules-core', 'ios', 'JSI', 'EXJSIUtils.h');
+if (fs.existsSync(exJsiUtilsH)) {
+  let content = fs.readFileSync(exJsiUtilsH, 'utf8');
+  if (!content.includes('<ReactCommon/CallInvoker.h>')) {
+    content = content.replace(
+      '#import <ReactCommon/TurboModuleUtils.h>',
+      '#import <ReactCommon/CallInvoker.h>\n#import <ReactCommon/TurboModuleUtils.h>'
+    );
+    fs.writeFileSync(exJsiUtilsH, content, 'utf8');
+    console.log('✅ Patched EXJSIUtils.h with #import <ReactCommon/CallInvoker.h>');
+  }
+}
+
 const coreIosDir = path.join(__dirname, '..', 'node_modules', 'expo-modules-core', 'ios');
 if (fs.existsSync(coreIosDir)) {
   function patchCoreSwiftFiles(dir) {
