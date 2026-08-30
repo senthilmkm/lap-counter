@@ -62,18 +62,35 @@ if (fs.existsSync(corePrebuildsDir)) {
   console.log('✅ Removed expo-modules-core prebuilds directory');
 }
 
-const corePodspec = path.join(
-  __dirname, '..', 'node_modules', 'expo-modules-core', 'ExpoModulesCore.podspec'
-);
-if (fs.existsSync(corePodspec)) {
-  let content = fs.readFileSync(corePodspec, 'utf8');
-  if (content.includes('Expo::PackagesConfig.instance.try_link_with_prebuilt_xcframework(s)')) {
-    content = content.replace(
-      /if\s*\(!Expo::PackagesConfig\.instance\.try_link_with_prebuilt_xcframework\(s\)\)/g,
-      'if (true)'
-    );
-    fs.writeFileSync(corePodspec, content, 'utf8');
-    console.log('✅ Patched ExpoModulesCore.podspec to build from source');
+const podspecsToFix = [
+  path.join(__dirname, '..', 'node_modules', 'expo-modules-core', 'ExpoModulesCore.podspec'),
+  path.join(__dirname, '..', 'node_modules', 'expo-modules-core', 'ExpoModulesWorklets.podspec'),
+  path.join(__dirname, '..', 'node_modules', 'expo-modules-core', 'ExpoModulesWorkletsAdapter.podspec')
+];
+
+for (const podspecPath of podspecsToFix) {
+  if (fs.existsSync(podspecPath)) {
+    let content = fs.readFileSync(podspecPath, 'utf8');
+    let changed = false;
+    if (content.includes('Expo::PackagesConfig.instance.try_link_with_prebuilt_xcframework(s)')) {
+      content = content.replace(
+        /if\s*\(!Expo::PackagesConfig\.instance\.try_link_with_prebuilt_xcframework\(s\)\)/g,
+        'if (true)'
+      );
+      changed = true;
+    }
+    if (content.includes("s.swift_version  = '6.0'")) {
+      content = content.replace("s.swift_version  = '6.0'", "s.swift_version  = '5.0'");
+      changed = true;
+    }
+    if (content.includes("s.swift_version = '6.0'")) {
+      content = content.replace("s.swift_version = '6.0'", "s.swift_version = '5.0'");
+      changed = true;
+    }
+    if (changed) {
+      fs.writeFileSync(podspecPath, content, 'utf8');
+      console.log(`✅ Patched ${path.basename(podspecPath)} (build from source, Swift 5.0 mode)`);
+    }
   }
 }
 
@@ -1178,13 +1195,18 @@ public actor JavaScriptActor: GlobalActor {
   }
 
   @discardableResult
-  public static func assumeIsolated<T>(_ operation: @JavaScriptActor () throws -> T) rethrows -> T {
+  public static func assumeIsolated<T: ~Copyable>(_ operation: @JavaScriptActor () throws -> T) rethrows -> T {
     Self.checkIsolated()
     typealias RawFn = () throws -> T
     return try withoutActuallyEscaping(operation) { fn in
       let raw = unsafeBitCast(fn, to: RawFn.self)
       return try raw()
     }
+  }
+
+  @discardableResult
+  public static func run<T: ~Copyable>(_ operation: @JavaScriptActor () throws -> T) rethrows -> T {
+    return try assumeIsolated(operation)
   }
 
   public static func checkIsolated() {
