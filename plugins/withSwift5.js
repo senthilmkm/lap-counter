@@ -10,10 +10,6 @@ module.exports = function withSwift5(config) {
       if (fs.existsSync(podfilePath)) {
         let content = fs.readFileSync(podfilePath, 'utf8');
         const hook = `
-    installer.pods_project.build_configurations.each do |config|
-      config.build_settings['SWIFT_VERSION'] = '5.9'
-      config.build_settings['SWIFT_STRICT_CONCURRENCY'] = 'minimal'
-    end
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |config|
         config.build_settings['SWIFT_VERSION'] = '5.9'
