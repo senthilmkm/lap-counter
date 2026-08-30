@@ -587,11 +587,16 @@ if (fs.existsSync(jsiUtilsPath)) {
   }
 }
 
-// 4f. CppError.h (fix all std::make_unique<CppError> which trigger __construct_at with move-only jsi::JSError)
+// 4f. CppError.h (fix all std::make_unique<CppError> and add #ifdef __cplusplus guard)
 const cppErrorPath = path.join(cxxIncludeDir, 'CppError.h');
 if (fs.existsSync(cppErrorPath)) {
   let content = fs.readFileSync(cppErrorPath, 'utf8');
   let changed = false;
+  if (!content.includes('#ifdef __cplusplus')) {
+    content = content.replace('#pragma once', '#pragma once\n\n#ifdef __cplusplus');
+    content = content + '\n#endif // __cplusplus\n';
+    changed = true;
+  }
   if (content.includes('std::make_unique<CppError>')) {
     content = content
       .replace(
@@ -622,7 +627,7 @@ if (fs.existsSync(cppErrorPath)) {
   }
   if (changed) {
     fs.writeFileSync(cppErrorPath, content, 'utf8');
-    console.log('✅ Patched CppError.h to replace all std::make_unique with std::unique_ptr(new CppError(...))');
+    console.log('✅ Patched CppError.h (added #ifdef __cplusplus and unique_ptr)');
   } else {
     console.log('✔  CppError.h already up-to-date');
   }
