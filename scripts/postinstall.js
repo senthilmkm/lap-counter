@@ -118,18 +118,49 @@ if (fs.existsSync(taskManagerModuleSwift)) {
     content = content.replace('appUrl: appUrl,', 'appUrl: appUrl ?? "",');
     changed = true;
   }
-  if (content.includes('func task(withName taskName: TaskName, hasConsumerOf consumerClass: AnyClass)')) {
+  if (content.includes('func task(withName taskName: TaskName, hasConsumerOfClass consumerClass: AnyClass)')) {
     content = content.replace(
-      'func task(withName taskName: TaskName, hasConsumerOf consumerClass: AnyClass)',
-      'func task(withName taskName: TaskName, hasConsumerOfClass consumerClass: AnyClass)'
+      'func task(withName taskName: TaskName, hasConsumerOfClass consumerClass: AnyClass)',
+      'func task(withName taskName: TaskName, hasConsumerOf consumerClass: AnyClass)'
     );
     changed = true;
   }
-  if (content.includes('func execute(withBody body: [String: Any])')) {
-    content = content.replace(
-      'func execute(withBody body: [String: Any])',
-      'func execute(withBody body: [AnyHashable: Any])'
-    );
+  const oldExec = `  public func execute(withBody body: [String: Any]) {
+    if eventsQueue != nil {
+      // The module was created, but JS is not listening for events yet.
+      // In that case we need to queue them up.
+      eventsQueue?.append(body)
+    } else {
+      // JS is already listening to the event, we can emit it straight away.
+      sendEvent(EXECUTE_TASK_EVENT_NAME, body)
+    }
+  }`;
+  const oldExec2 = `  public func execute(withBody body: [AnyHashable: Any]) {
+    if eventsQueue != nil {
+      // The module was created, but JS is not listening for events yet.
+      // In that case we need to queue them up.
+      eventsQueue?.append(body)
+    } else {
+      // JS is already listening to the event, we can emit it straight away.
+      sendEvent(EXECUTE_TASK_EVENT_NAME, body)
+    }
+  }`;
+  const newExec = `  public func execute(withBody body: [AnyHashable: Any]) {
+    let eventBody = (body as? [String: Any]) ?? [:]
+    if eventsQueue != nil {
+      // The module was created, but JS is not listening for events yet.
+      // In that case we need to queue them up.
+      eventsQueue?.append(eventBody)
+    } else {
+      // JS is already listening to the event, we can emit it straight away.
+      sendEvent(EXECUTE_TASK_EVENT_NAME, eventBody)
+    }
+  }`;
+  if (content.includes(oldExec)) {
+    content = content.replace(oldExec, newExec);
+    changed = true;
+  } else if (content.includes(oldExec2)) {
+    content = content.replace(oldExec2, newExec);
     changed = true;
   }
   if (changed) {
