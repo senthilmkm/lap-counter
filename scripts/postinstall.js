@@ -215,19 +215,31 @@ if (fs.existsSync(coreIosDir)) {
           }
         }
 
+        // Fix SceneGeometry @MainActor in SceneGeometry.swift
+        if (entry.name === 'SceneGeometry.swift') {
+          if (content.includes('public enum SceneGeometry {') && !content.includes('@MainActor\npublic enum SceneGeometry')) {
+            content = content.replace('public enum SceneGeometry {', '@MainActor\npublic enum SceneGeometry {');
+            changed = true;
+          }
+        }
+
         // Fix SwiftUIVirtualView in SwiftUIVirtualView.swift
         if (entry.name === 'SwiftUIVirtualView.swift') {
           const newFocusExt = `extension ExpoSwiftUI.SwiftUIVirtualViewDev: ExpoSwiftUI.FocusableViewContainer {
   func resignFirstResponderInSubtree() {
-    virtualViewResignFirstResponderInSubtree(contentView: contentView, children: props.children)
+    MainActor.assumeIsolated {
+      virtualViewResignFirstResponderInSubtree(contentView: contentView, children: props.children)
+    }
   }
 }`;
           const newWrapperExt = `extension ExpoSwiftUI.SwiftUIVirtualViewDev: ExpoSwiftUI.ViewWrapper {
   func getWrappedView() -> Any {
-    if let wrapper = contentView as? ExpoSwiftUI.ViewWrapper {
-      return wrapper.getWrappedView()
+    MainActor.assumeIsolated {
+      if let wrapper = contentView as? ExpoSwiftUI.ViewWrapper {
+        return wrapper.getWrappedView()
+      }
+      return contentView
     }
-    return contentView
   }
 }`;
           if (content.includes('extension ExpoSwiftUI.SwiftUIVirtualViewDev: ExpoSwiftUI.FocusableViewContainer {')) {
