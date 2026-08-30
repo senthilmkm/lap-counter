@@ -18,6 +18,9 @@ const path = require('path');
 // 3. expo-modules-jsi Package.swift:
 //    Replace with a clean Swift 6.0 Package.swift (removing Swift 6.2 tools version,
 //    experimental features, and trailing commas in argument lists that break Swift 6.0).
+//
+// 4. expo-modules-jsi RuntimeScheduler.h:
+//    Add #ifndef SWIFT_RETURNS_RETAINED fallback define for Swift 6.0 compatibility.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -215,6 +218,29 @@ func resolveTestFrameworks() -> (binaryTargets: [Target], dependencies: [Target.
   console.log('✅ Wrote clean Swift 6.0 expo-modules-jsi Package.swift (no trailing commas, tools 6.0)');
 } else {
   console.log('⚠️  expo-modules-jsi/apple/Package.swift not found');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. Patch expo-modules-jsi RuntimeScheduler.h for Swift 6.0 C++ interop
+// ─────────────────────────────────────────────────────────────────────────────
+const runtimeSchedulerPath = path.join(
+  __dirname, '..', 'node_modules', 'expo-modules-jsi', 'apple',
+  'Sources', 'ExpoModulesJSI-Cxx', 'include', 'RuntimeScheduler.h'
+);
+if (fs.existsSync(runtimeSchedulerPath)) {
+  let headerContent = fs.readFileSync(runtimeSchedulerPath, 'utf8');
+  if (!headerContent.includes('#ifndef SWIFT_RETURNS_RETAINED')) {
+    headerContent = headerContent.replace(
+      '#include <swift/bridging>',
+      '#include <swift/bridging>\n\n#ifndef SWIFT_RETURNS_RETAINED\n#define SWIFT_RETURNS_RETAINED\n#endif'
+    );
+    fs.writeFileSync(runtimeSchedulerPath, headerContent, 'utf8');
+    console.log('✅ Patched RuntimeScheduler.h with SWIFT_RETURNS_RETAINED fallback');
+  } else {
+    console.log('✔  RuntimeScheduler.h already has SWIFT_RETURNS_RETAINED fallback');
+  }
+} else {
+  console.log('⚠️  RuntimeScheduler.h not found');
 }
 
 console.log('✅ Postinstall completed successfully');
