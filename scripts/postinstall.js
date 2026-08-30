@@ -144,7 +144,7 @@ if (fs.existsSync(coreIosDir)) {
 
         // Fix DynamicSwiftUIViewType in DynamicSwiftUIViewType.swift
         if (entry.name === 'DynamicSwiftUIViewType.swift') {
-          const newCastBody = `    let resolvedView = performSynchronouslyOnMainThread { () -> Any? in
+          const newCastBody = `    let resolvedView = performSynchronouslyOnMainActor { () -> Any? in
       if let view = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.SwiftUIVirtualView<ViewType.Props, ViewType>.self) {
         return view.contentView
       }
