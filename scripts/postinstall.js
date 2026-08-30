@@ -860,20 +860,6 @@ public actor JavaScriptActor: GlobalActor {
     return executor.asUnownedSerialExecutor()
   }
 
-  internal static func assumeIsolated(_ operation: @escaping @JavaScriptActor () -> facebook.jsi.Value) -> facebook.jsi.Value {
-    Self.checkIsolated()
-    typealias RawFn = () -> facebook.jsi.Value
-    let raw = unsafeBitCast(operation, to: RawFn.self)
-    return raw()
-  }
-
-  internal static func assumeIsolated(_ operation: @escaping @JavaScriptActor () -> Void) {
-    Self.checkIsolated()
-    typealias RawFn = () -> Void
-    let raw = unsafeBitCast(operation, to: RawFn.self)
-    raw()
-  }
-
   internal static func assumeIsolated<T>(_ operation: @escaping @JavaScriptActor () throws -> T) throws -> T {
     Self.checkIsolated()
     typealias RawFn = () throws -> T
