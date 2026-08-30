@@ -830,12 +830,22 @@ extension Task where Failure == any Error {
         changed = true;
       }
 
-      // Fix ErrorHandling.swift non-copyable type handling
+      // Fix ErrorHandling.swift non-copyable type handling and @JavaScriptActor forwarding
       if (entry.name === 'ErrorHandling.swift') {
-        if (content.includes('internal func capturingCppErrors<R: ~Copyable>')) {
-          content = content.replace(
-            /internal\s+func\s+capturingCppErrors<R:\s*~Copyable>[\s\S]*?return\s+result\s*\}/,
-            `internal func checkCppError() throws {
+        content = `internal import ExpoModulesJSI_Cxx
+internal import jsi
+
+/// Gets the recently thrown \`expo.CppError\` that was not handled by Swift yet.
+private func getCurrentCppError() -> expo.CppError? {
+  if let current = expo.CppError.getCurrent() {
+    return current.move()
+  }
+  return nil
+}
+
+/// Executes given block (calling potentially throwing C++ functions) and captures C++ exceptions
+/// thrown within the block passed to \`expo::CppError::tryCatch\` call in C++.
+internal func checkCppError() throws {
   if let cppError = getCurrentCppError() {
     throw cppError
   }
@@ -845,10 +855,60 @@ internal func capturingCppErrors<R>(_ block: () throws -> R) throws -> R {
   let result: R = try block()
   try checkCppError()
   return result
-}`
-          );
-          changed = true;
-        }
+}
+
+/// Runs a Swift trampoline body called from a C++ host callback and forwards any thrown error
+/// to \`expo::CppError\`'s thread-local storage so the C++ side can rethrow it as a \`jsi::JSError\`.
+/// On the failure branch returns \`undefined\`, since the C++ side will overwrite it by throwing
+/// the rethrown \`jsi::JSError\` before the value is observed by JS. Used by host function and
+/// host object getter trampolines on a hot path, hence \`@_transparent\` to inline into the
+/// caller and avoid a function-call boundary.
+@_transparent
+internal func forwardingSwiftErrorsToJS(
+  runtime: JavaScriptRuntime,
+  _ body: @JavaScriptActor () throws -> facebook.jsi.Value
+) -> facebook.jsi.Value {
+  do {
+    return try JavaScriptActor.assumeIsolated(body)
+  } catch let jsError as JavaScriptError {
+    // Relay the wrapped \`jsi::JSError\` directly so the thrown value reaches JS as-is, which may be
+    // an arbitrary value rather than an \`Error\` instance.
+    expo.CppError.setCurrent(jsError.toJSError())
+  } catch let throwable as JavaScriptThrowable {
+    expo.CppError.setCurrent(JavaScriptError(runtime, from: throwable).toJSError())
+  } catch let cppError as expo.CppError {
+    // Re-thrown by \`capturingCppErrors\` when nested JSI work raised a JS error; relay
+    // the original so its \`jsi::JSError\` (with stack, code, custom properties) survives.
+    expo.CppError.setCurrent(cppError)
+  } catch let error {
+    expo.CppError.setCurrent(runtime.pointee, std.string(String(describing: error)))
+  }
+  return .undefined()
+}
+
+/// Void overload of \`forwardingSwiftErrorsToJS\` for host object setter trampolines, which
+/// have no return value to propagate.
+@_transparent
+internal func forwardingSwiftErrorsToJS(
+  runtime: JavaScriptRuntime,
+  _ body: @JavaScriptActor () throws -> Void
+) {
+  do {
+    try JavaScriptActor.assumeIsolated(body)
+  } catch let jsError as JavaScriptError {
+    // Relay the wrapped \`jsi::JSError\` directly so the thrown value reaches JS as-is, which may be
+    // an arbitrary value rather than an \`Error\` instance.
+    expo.CppError.setCurrent(jsError.toJSError())
+  } catch let throwable as JavaScriptThrowable {
+    expo.CppError.setCurrent(JavaScriptError(runtime, from: throwable).toJSError())
+  } catch let cppError as expo.CppError {
+    expo.CppError.setCurrent(cppError)
+  } catch let error {
+    expo.CppError.setCurrent(runtime.pointee, std.string(String(describing: error)))
+  }
+}
+`;
+        changed = true;
       }
 
       // Fix JavaScriptFunction.swift non-copyable type return from capturingCppErrors
