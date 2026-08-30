@@ -860,8 +860,6 @@ public actor JavaScriptActor: GlobalActor {
     return executor.asUnownedSerialExecutor()
   }
 
-  @_alwaysEmitIntoClient
-  @inline(__always)
   public static func assumeIsolated(_ operation: @escaping @JavaScriptActor () -> facebook.jsi.Value) -> facebook.jsi.Value {
     Self.checkIsolated()
     typealias RawFn = () -> facebook.jsi.Value
@@ -869,8 +867,6 @@ public actor JavaScriptActor: GlobalActor {
     return raw()
   }
 
-  @_alwaysEmitIntoClient
-  @inline(__always)
   public static func assumeIsolated(_ operation: @escaping @JavaScriptActor () -> Void) {
     Self.checkIsolated()
     typealias RawFn = () -> Void
@@ -878,8 +874,6 @@ public actor JavaScriptActor: GlobalActor {
     raw()
   }
 
-  @_alwaysEmitIntoClient
-  @inline(__always)
   public static func assumeIsolated<T>(_ operation: @escaping @JavaScriptActor () throws -> T) throws -> T {
     Self.checkIsolated()
     typealias RawFn = () throws -> T
@@ -887,8 +881,6 @@ public actor JavaScriptActor: GlobalActor {
     return try raw()
   }
 
-  @_alwaysEmitIntoClient
-  @inline(__always)
   public static func assumeIsolated<T>(_ operation: @escaping @JavaScriptActor () -> T) -> T {
     Self.checkIsolated()
     typealias RawFn = () -> T
