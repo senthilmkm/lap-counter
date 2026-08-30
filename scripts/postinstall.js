@@ -633,6 +633,26 @@ if (fs.existsSync(cppErrorPath)) {
   }
 }
 
+// 4g. Guard all C++ headers in ExpoModulesJSI-Cxx with #ifdef __cplusplus
+function guardCxxHeadersRecursively(dir) {
+  if (!fs.existsSync(dir)) return;
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      guardCxxHeadersRecursively(fullPath);
+    } else if (entry.isFile() && entry.name.endsWith('.h')) {
+      let content = fs.readFileSync(fullPath, 'utf8');
+      if (!content.includes('#ifdef __cplusplus') && !content.includes('#if defined(__cplusplus)')) {
+        content = content.replace('#pragma once', '#pragma once\n\n#ifdef __cplusplus') + '\n#endif // __cplusplus\n';
+        fs.writeFileSync(fullPath, content, 'utf8');
+        console.log(`✅ Added #ifdef __cplusplus guard to ${entry.name}`);
+      }
+    }
+  }
+}
+guardCxxHeadersRecursively(cxxIncludeDir);
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 5. Patch expo-modules-jsi Swift sources for Swift 6.0 compatibility
