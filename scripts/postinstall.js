@@ -184,8 +184,48 @@ if (fs.existsSync(coreIosDir)) {
           }
         }
 
-        // Fix SwiftUIVirtualView extension in SwiftUIVirtualView.swift
+        // Fix AnyArgument.swift duplicate modifier
+        if (entry.name === 'AnyArgument.swift') {
+          if (content.includes('nonisolated static func getDynamicType()')) {
+            content = content.replace('nonisolated static func getDynamicType()', 'static func getDynamicType()');
+            changed = true;
+          }
+        }
+
+        // Fix SwiftUIViewDefinition.swift duplicate modifier
+        if (entry.name === 'SwiftUIViewDefinition.swift') {
+          if (content.includes('public nonisolated static func getDynamicType()')) {
+            content = content.replace('public nonisolated static func getDynamicType()', 'public static func getDynamicType()');
+            changed = true;
+          }
+        }
+
+        // Fix SwiftUIHostingView.swift unknown attribute @MainActor
+        if (entry.name === 'SwiftUIHostingView.swift') {
+          if (content.includes(': ExpoView, @MainActor AnyExpoSwiftUIHostingView {')) {
+            content = content.replace(': ExpoView, @MainActor AnyExpoSwiftUIHostingView {', ': ExpoView, AnyExpoSwiftUIHostingView {');
+            changed = true;
+          }
+        }
+
+        // Fix ViewModuleWrapper.swift UIKit import
+        if (entry.name === 'ViewModuleWrapper.swift') {
+          if (!content.includes('import UIKit')) {
+            content = "import UIKit\n" + content;
+            changed = true;
+          }
+        }
+
+        // Fix SwiftUIVirtualView in SwiftUIVirtualView.swift
         if (entry.name === 'SwiftUIVirtualView.swift') {
+          if (content.includes(': SwiftUIVirtualViewObjC, @MainActor ExpoSwiftUIView {')) {
+            content = content.replace(': SwiftUIVirtualViewObjC, @MainActor ExpoSwiftUIView {', ': SwiftUIVirtualViewObjC, ExpoSwiftUIView {');
+            changed = true;
+          }
+          if (content.includes(': SwiftUIVirtualViewObjCDev, @MainActor ExpoSwiftUIView {')) {
+            content = content.replace(': SwiftUIVirtualViewObjCDev, @MainActor ExpoSwiftUIView {', ': SwiftUIVirtualViewObjCDev, ExpoSwiftUIView {');
+            changed = true;
+          }
           if (content.includes('@MainActor\nextension ExpoSwiftUI.SwiftUIVirtualView: ExpoSwiftUI.ViewWrapper {')) {
             content = content.replace('@MainActor\nextension ExpoSwiftUI.SwiftUIVirtualView: ExpoSwiftUI.ViewWrapper {', 'extension ExpoSwiftUI.SwiftUIVirtualView: ExpoSwiftUI.ViewWrapper {');
             changed = true;
