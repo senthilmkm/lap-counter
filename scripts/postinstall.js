@@ -497,7 +497,7 @@ let headerSearchPaths = [
   "\\(publicHeaders)/glog",
   "\\(publicHeaders)/DoubleConversion",
   "\\(publicHeaders)/fmt",
-  "\\(fastFloatHeader)",
+  "\\(publicHeaders)/fast_float",
   "\\(reactNative)/ReactCommon",
   "\\(reactNative)/ReactCommon/jsi",
   "\\(reactNative)/ReactCommon/runtimeexecutor",
