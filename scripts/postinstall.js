@@ -121,6 +121,42 @@ if (fs.existsSync(coreIosDir)) {
             content = content.replace('public required init() {}', 'public required nonisolated init() {}');
             changed = true;
           }
+          if (content.includes('public required init(rawProps:')) {
+            content = content.replace('public required init(rawProps:', 'public required nonisolated init(rawProps:');
+            changed = true;
+          }
+        }
+
+        // Fix ShadowNodeProxy nonisolated init() in SwiftUIShadowNodeProxy.swift
+        if (entry.name === 'SwiftUIShadowNodeProxy.swift') {
+          if (content.includes('public required init() {}')) {
+            content = content.replace('public required init() {}', 'public required nonisolated init() {}');
+            changed = true;
+          }
+        }
+
+        // Fix SceneGeometry @MainActor in SceneGeometry.swift
+        if (entry.name === 'SceneGeometry.swift') {
+          if (content.includes('public enum SceneGeometry {') && !content.includes('@MainActor\npublic enum SceneGeometry')) {
+            content = content.replace('public enum SceneGeometry {', '@MainActor\npublic enum SceneGeometry {');
+            changed = true;
+          }
+        }
+
+        // Fix AutoSizingStack @MainActor in AutoSizingStack.swift
+        if (entry.name === 'AutoSizingStack.swift') {
+          if (content.includes('public struct AutoSizingStack<Content: SwiftUI.View>: SwiftUI.View {') && !content.includes('@MainActor\n  public struct AutoSizingStack')) {
+            content = content.replace('public struct AutoSizingStack<Content: SwiftUI.View>: SwiftUI.View {', '@MainActor\n  public struct AutoSizingStack<Content: SwiftUI.View>: SwiftUI.View {');
+            changed = true;
+          }
+        }
+
+        // Fix Utilities performSynchronouslyOnMainActor Sendable constraint in Utilities.swift
+        if (entry.name === 'Utilities.swift') {
+          if (content.includes('func performSynchronouslyOnMainActor<Result: Sendable>')) {
+            content = content.replace('func performSynchronouslyOnMainActor<Result: Sendable>', 'func performSynchronouslyOnMainActor<Result>');
+            changed = true;
+          }
         }
 
         // Fix ViewWrapper in ExpoSwiftUI.swift to be @MainActor
