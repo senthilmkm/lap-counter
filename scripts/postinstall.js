@@ -79,23 +79,23 @@ for (const podspecPath of podspecsToFix) {
       );
       changed = true;
     }
-    if (content.includes("s.swift_version  = '6.0'")) {
-      content = content.replace("s.swift_version  = '6.0'", "s.swift_version  = '5.0'");
+    if (content.includes("s.swift_version  = '5.0'")) {
+      content = content.replace("s.swift_version  = '5.0'", "s.swift_version  = '6.0'");
       changed = true;
     }
-    if (content.includes("s.swift_version = '6.0'")) {
-      content = content.replace("s.swift_version = '6.0'", "s.swift_version = '5.0'");
+    if (content.includes("s.swift_version = '5.0'")) {
+      content = content.replace("s.swift_version = '5.0'", "s.swift_version = '6.0'");
       changed = true;
     }
     if (changed) {
       fs.writeFileSync(podspecPath, content, 'utf8');
-      console.log(`✅ Patched ${path.basename(podspecPath)} (build from source, Swift 5.0 mode)`);
+      console.log(`✅ Patched ${path.basename(podspecPath)} (build from source, Swift 6.0 mode)`);
     }
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 1c. Patch expo-modules-core Swift files (import _Concurrency, weak var, any Record)
+// 1c. Patch expo-modules-core Swift files (import _Concurrency, weak var, any Record, @MainActor protocols)
 // ─────────────────────────────────────────────────────────────────────────────
 const coreIosDir = path.join(__dirname, '..', 'node_modules', 'expo-modules-core', 'ios');
 if (fs.existsSync(coreIosDir)) {
@@ -109,12 +109,6 @@ if (fs.existsSync(coreIosDir)) {
         let content = fs.readFileSync(fullPath, 'utf8');
         let changed = false;
 
-        // Ensure import _Concurrency is present whenever @MainActor or Task or Sendable is used
-        if ((content.includes('@MainActor') || content.includes('MainActor') || content.includes('Sendable')) && !content.includes('import _Concurrency')) {
-          content = `import _Concurrency\n` + content;
-          changed = true;
-        }
-
         // Fix 'weak let' -> 'weak var'
         if (content.includes('weak let')) {
           content = content.replace(/\bweak\s+let\b/g, 'weak var');
@@ -125,6 +119,45 @@ if (fs.existsSync(coreIosDir)) {
         if (entry.name === 'SwiftUIViewProps.swift') {
           if (content.includes('public required init() {}')) {
             content = content.replace('public required init() {}', 'public required nonisolated init() {}');
+            changed = true;
+          }
+        }
+
+        // Fix ViewWrapper in ExpoSwiftUI.swift to be @MainActor
+        if (entry.name === 'ExpoSwiftUI.swift') {
+          if (content.includes('public protocol ViewWrapper {') && !content.includes('@MainActor\n  public protocol ViewWrapper')) {
+            content = content.replace('public protocol ViewWrapper {', '@MainActor\n  public protocol ViewWrapper {');
+            changed = true;
+          }
+        }
+
+        // Fix AnyExpoSwiftUIHostingView in SwiftUIHostingView.swift to be @MainActor
+        if (entry.name === 'SwiftUIHostingView.swift') {
+          if (content.includes('internal protocol AnyExpoSwiftUIHostingView {') && !content.includes('@MainActor\ninternal protocol AnyExpoSwiftUIHostingView')) {
+            content = content.replace('internal protocol AnyExpoSwiftUIHostingView {', '@MainActor\ninternal protocol AnyExpoSwiftUIHostingView {');
+            changed = true;
+          }
+        }
+
+        // Fix PersistentFileLog filter Sendable in PersistentFileLog.swift
+        if (entry.name === 'PersistentFileLog.swift') {
+          if (content.includes('public typealias PersistentFileLogFilter = (String) -> Bool')) {
+            content = content.replace('public typealias PersistentFileLogFilter = (String) -> Bool', 'public typealias PersistentFileLogFilter = @Sendable (String) -> Bool');
+            changed = true;
+          }
+          if (content.includes('public typealias PersistentFileLogCompletionHandler = (Error?) -> Void')) {
+            content = content.replace('public typealias PersistentFileLogCompletionHandler = (Error?) -> Void', 'public typealias PersistentFileLogCompletionHandler = @Sendable (Error?) -> Void');
+            changed = true;
+          }
+        }
+
+        // Fix UIViewFrameObserver observation in SwiftUIViewFrameObserver.swift
+        if (entry.name === 'SwiftUIViewFrameObserver.swift') {
+          if (content.includes('observer = view.observe(\\.bounds, options: [.old, .new]) { view, change in')) {
+            content = content.replace(
+              'observer = view.observe(\\.bounds, options: [.old, .new]) { view, change in',
+              'observer = view.observe(\\.bounds, options: [.old, .new]) { @MainActor view, change in'
+            );
             changed = true;
           }
         }
