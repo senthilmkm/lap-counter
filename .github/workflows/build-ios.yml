@@ -54,7 +54,7 @@ jobs:
           EXPO_DEBUG: "1"
           EAS_LOCAL_BUILD_WORKINGDIR: "/Users/runner/work/eas-build"
         run: |
-          eas build --platform ios --profile production --local --non-interactive --output ./Orbit.ipa
+          eas build --platform ios --profile production --local --non-interactive --output ./Orbit.ipa --verbose
 
       - name: 📤 Submit IPA to Apple App Store Connect
         run: |
