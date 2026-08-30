@@ -227,25 +227,70 @@ if (fs.existsSync(coreIosDir)) {
 
         // Fix SwiftUIHostingView in SwiftUIHostingView.swift
         if (entry.name === 'SwiftUIHostingView.swift') {
-          const newProto = `internal protocol AnyExpoSwiftUIHostingView: AnyObject {
-  @MainActor func updateProps(_ rawProps: [String: Any])
-  @MainActor func getContentView() -> any ExpoSwiftUI.View
-  @MainActor func getProps() -> ExpoSwiftUI.ViewProps
+          const cleanProto = `internal protocol AnyExpoSwiftUIHostingView {
+  func updateProps(_ rawProps: [String: Any])
+  func getContentView() -> any ExpoSwiftUI.View
+  func getProps() -> ExpoSwiftUI.ViewProps
 }`;
           if (content.includes('internal protocol AnyExpoSwiftUIHostingView')) {
-            content = content.replace(/(?:@MainActor\n)?internal protocol AnyExpoSwiftUIHostingView[\s\S]*?\n\}/m, newProto);
+            content = content.replace(/(?:@MainActor\n)?internal protocol AnyExpoSwiftUIHostingView[\s\S]*?\n\}/m, cleanProto);
+            changed = true;
+          }
+          if (content.includes('public func getContentView() -> any ExpoSwiftUI.View {\n      return contentView\n    }')) {
+            content = content.replace(
+              'public func getContentView() -> any ExpoSwiftUI.View {\n      return contentView\n    }',
+              'nonisolated public func getContentView() -> any ExpoSwiftUI.View {\n      return MainActor.assumeIsolated { contentView }\n    }'
+            );
+            changed = true;
+          }
+          if (content.includes('public func getProps() -> ExpoSwiftUI.ViewProps {\n      return props\n    }')) {
+            content = content.replace(
+              'public func getProps() -> ExpoSwiftUI.ViewProps {\n      return props\n    }',
+              'nonisolated public func getProps() -> ExpoSwiftUI.ViewProps {\n      return MainActor.assumeIsolated { props }\n    }'
+            );
             changed = true;
           }
         }
 
         // Fix ExpoSwiftUI in ExpoSwiftUI.swift
         if (entry.name === 'ExpoSwiftUI.swift') {
-          if (content.includes('internal protocol FocusableViewContainer {')) {
-            content = content.replace('internal protocol FocusableViewContainer {', 'internal protocol FocusableViewContainer: AnyObject {');
+          const cleanFocus = `internal protocol FocusableViewContainer {\n    func resignFirstResponderInSubtree()\n  }`;
+          const cleanWrapper = `public protocol ViewWrapper {\n    func getWrappedView() -> Any\n  }`;
+          if (content.includes('protocol FocusableViewContainer')) {
+            content = content.replace(/internal protocol FocusableViewContainer[\s\S]*?\n  \}/m, cleanFocus);
             changed = true;
           }
-          if (content.includes('public protocol ViewWrapper {')) {
-            content = content.replace('public protocol ViewWrapper {', 'public protocol ViewWrapper: AnyObject {');
+          if (content.includes('protocol ViewWrapper')) {
+            content = content.replace(/public protocol ViewWrapper[\s\S]*?\n  \}/m, cleanWrapper);
+            changed = true;
+          }
+        }
+
+        // Fix SwiftUIVirtualView in SwiftUIVirtualView.swift
+        if (entry.name === 'SwiftUIVirtualView.swift') {
+          const newFocusExt = `extension ExpoSwiftUI.SwiftUIVirtualViewDev: ExpoSwiftUI.FocusableViewContainer {
+  nonisolated func resignFirstResponderInSubtree() {
+    MainActor.assumeIsolated {
+      virtualViewResignFirstResponderInSubtree(contentView: contentView, children: props.children)
+    }
+  }
+}`;
+          const newWrapperExt = `extension ExpoSwiftUI.SwiftUIVirtualViewDev: ExpoSwiftUI.ViewWrapper {
+  nonisolated func getWrappedView() -> Any {
+    MainActor.assumeIsolated {
+      if let wrapper = contentView as? ExpoSwiftUI.ViewWrapper {
+        return wrapper.getWrappedView()
+      }
+      return contentView
+    }
+  }
+}`;
+          if (content.includes('extension ExpoSwiftUI.SwiftUIVirtualViewDev: ExpoSwiftUI.FocusableViewContainer {')) {
+            content = content.replace(/extension ExpoSwiftUI\.SwiftUIVirtualViewDev: ExpoSwiftUI\.FocusableViewContainer \{[\s\S]*?\n\}/m, newFocusExt);
+            changed = true;
+          }
+          if (content.includes('extension ExpoSwiftUI.SwiftUIVirtualViewDev: ExpoSwiftUI.ViewWrapper {')) {
+            content = content.replace(/extension ExpoSwiftUI\.SwiftUIVirtualViewDev: ExpoSwiftUI\.ViewWrapper \{[\s\S]*?\n\}/m, newWrapperExt);
             changed = true;
           }
         }
