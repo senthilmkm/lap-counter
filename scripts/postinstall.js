@@ -222,8 +222,73 @@ if (fs.existsSync(coreIosDir)) {
 
         // Fix DynamicSwiftUIViewType performSynchronouslyOnMainThread in DynamicSwiftUIViewType.swift
         if (entry.name === 'DynamicSwiftUIViewType.swift') {
-          if (content.includes('return try performSynchronouslyOnMainActor {')) {
-            content = content.replace('return try performSynchronouslyOnMainActor {', 'return try performSynchronouslyOnMainThread {');
+          const oldCastBody = `    return try performSynchronouslyOnMainActor {
+      if let view = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.SwiftUIVirtualView<ViewType.Props, ViewType>.self) {
+        return view.contentView
+      }
+      if let view = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.SwiftUIVirtualViewDev<ViewType.Props, ViewType>.self) {
+        return view.contentView
+      }
+      // For wrapper types
+      // e.g. ExpoUIView(SecureFieldView.self)
+      if let provider = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.ViewWrapper.self),
+         let innerView = provider.getWrappedView() as? ViewType {
+        return innerView
+      }
+      // For views using WithHostingView protocol.
+      // e.g. View(HostView.self) where HostView conforms to WithHostingView
+      guard let view = appContext.findView(withTag: viewTag, ofType: AnyExpoSwiftUIHostingView.self) else {
+        throw Exceptions.SwiftUIViewNotFound((tag: viewTag, type: innerType.self))
+      }
+      return view.getContentView()
+    }`;
+          const oldCastBodyThread = `    return try performSynchronouslyOnMainThread {
+      if let view = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.SwiftUIVirtualView<ViewType.Props, ViewType>.self) {
+        return view.contentView
+      }
+      if let view = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.SwiftUIVirtualViewDev<ViewType.Props, ViewType>.self) {
+        return view.contentView
+      }
+      // For wrapper types
+      // e.g. ExpoUIView(SecureFieldView.self)
+      if let provider = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.ViewWrapper.self),
+         let innerView = provider.getWrappedView() as? ViewType {
+        return innerView
+      }
+      // For views using WithHostingView protocol.
+      // e.g. View(HostView.self) where HostView conforms to WithHostingView
+      guard let view = appContext.findView(withTag: viewTag, ofType: AnyExpoSwiftUIHostingView.self) else {
+        throw Exceptions.SwiftUIViewNotFound((tag: viewTag, type: innerType.self))
+      }
+      return view.getContentView()
+    }`;
+          const newCastBody = `    return try performSynchronouslyOnMainThread {
+      typealias ResolveFn = @MainActor () throws -> Any
+      let resolve: ResolveFn = {
+        if let view = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.SwiftUIVirtualView<ViewType.Props, ViewType>.self) {
+          return view.contentView
+        }
+        if let view = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.SwiftUIVirtualViewDev<ViewType.Props, ViewType>.self) {
+          return view.contentView
+        }
+        if let provider = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.ViewWrapper.self),
+           let innerView = provider.getWrappedView() as? ViewType {
+          return innerView
+        }
+        guard let view = appContext.findView(withTag: viewTag, ofType: AnyExpoSwiftUIHostingView.self) else {
+          throw Exceptions.SwiftUIViewNotFound((tag: viewTag, type: self.innerType.self))
+        }
+        return view.getContentView()
+      }
+      typealias NonisolatedFn = () throws -> Any
+      let nonisolatedResolve = unsafeBitCast(resolve, to: NonisolatedFn.self)
+      return try nonisolatedResolve()
+    }`;
+          if (content.includes(oldCastBody)) {
+            content = content.replace(oldCastBody, newCastBody);
+            changed = true;
+          } else if (content.includes(oldCastBodyThread)) {
+            content = content.replace(oldCastBodyThread, newCastBody);
             changed = true;
           }
         }
