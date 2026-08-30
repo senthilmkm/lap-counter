@@ -860,7 +860,25 @@ public actor JavaScriptActor: GlobalActor {
 
   @_alwaysEmitIntoClient
   @inline(__always)
-  public static func assumeIsolated<T: ~Copyable>(_ operation: @escaping @JavaScriptActor () throws -> T) throws -> T {
+  public static func assumeIsolated(_ operation: @escaping @JavaScriptActor () -> facebook.jsi.Value) -> facebook.jsi.Value {
+    Self.checkIsolated()
+    typealias RawFn = () -> facebook.jsi.Value
+    let raw = unsafeBitCast(operation, to: RawFn.self)
+    return raw()
+  }
+
+  @_alwaysEmitIntoClient
+  @inline(__always)
+  public static func assumeIsolated(_ operation: @escaping @JavaScriptActor () -> Void) {
+    Self.checkIsolated()
+    typealias RawFn = () -> Void
+    let raw = unsafeBitCast(operation, to: RawFn.self)
+    raw()
+  }
+
+  @_alwaysEmitIntoClient
+  @inline(__always)
+  public static func assumeIsolated<T>(_ operation: @escaping @JavaScriptActor () throws -> T) throws -> T {
     Self.checkIsolated()
     typealias RawFn = () throws -> T
     let raw = unsafeBitCast(operation, to: RawFn.self)
@@ -869,7 +887,7 @@ public actor JavaScriptActor: GlobalActor {
 
   @_alwaysEmitIntoClient
   @inline(__always)
-  public static func assumeIsolated<T: ~Copyable>(_ operation: @escaping @JavaScriptActor () -> T) -> T {
+  public static func assumeIsolated<T>(_ operation: @escaping @JavaScriptActor () -> T) -> T {
     Self.checkIsolated()
     typealias RawFn = () -> T
     let raw = unsafeBitCast(operation, to: RawFn.self)
