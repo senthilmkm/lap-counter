@@ -51,7 +51,7 @@ jobs:
 
       - name: 🔨 Build iOS IPA (Free Local Xcode 16 Build)
         run: |
-          eas build --platform ios --profile production --local --non-interactive --output ./Orbit.ipa
+          eas build --platform ios --profile production --local --non-interactive --verbose --output ./Orbit.ipa
 
       - name: 📤 Submit IPA to Apple App Store Connect
         run: |
@@ -60,14 +60,9 @@ jobs:
       - name: 🔍 Dump Detailed Xcode Build Logs on Failure
         if: failure()
         run: |
-          echo "=== Searching for EAS Xcode build error logs ==="
-          find /var/folders -name "*build*.log" -o -name "fastlane.log" -o -name "xcodebuild*.log" 2>/dev/null | while read logfile; do
+          echo "=== Searching for EAS Xcode / Fastlane / Gym build error logs ==="
+          find ~/Library/Logs /var/folders /tmp ~/.eas -type f \( -name "*.log" -o -name "*.txt" \) 2>/dev/null | while read logfile; do
             echo "=== Logfile: $logfile ==="
-            grep -C 10 "error:" "$logfile" | head -n 100 || true
-            grep -C 10 "__construct_at" "$logfile" | head -n 100 || true
-          done
-          find /Users/runner/Library/Developer/Xcode/DerivedData -name "*.log" 2>/dev/null | while read logfile; do
-            echo "=== DerivedData Logfile: $logfile ==="
-            grep -C 10 "error:" "$logfile" | head -n 100 || true
+            grep -E -C 5 "error:|fatal error:|BUILD FAILED" "$logfile" | head -n 100 || true
           done
 
