@@ -717,6 +717,18 @@ extension Task where Failure == any Error {
 
       // Fix JavaScriptRuntime.swift HostFunctionClosure, HostObject & RuntimeScheduler creation
       if (entry.name === 'JavaScriptRuntime.swift') {
+        if (content.includes('public typealias SyncFunctionClosure =')) {
+          content = content.replace(
+            /public\s+typealias\s+SyncFunctionClosure\s*=\s*@JavaScriptActor\s*\(/g,
+            'public typealias SyncFunctionClosure = ('
+          );
+          content = content.replace(
+            /public\s+typealias\s+UnownedThisSyncFunctionClosure\s*=\s*@JavaScriptActor\s*\(/g,
+            'public typealias UnownedThisSyncFunctionClosure = ('
+          );
+          changed = true;
+        }
+
         if (content.includes('return expo.HostFunctionClosure(context, call, deallocate)')) {
           content = content.replace(
             /->\s*expo\.HostFunctionClosure\s*\{/g,
@@ -907,6 +919,20 @@ internal func capturingCppErrors<R>(_ block: () throws -> R) throws -> R {
     try checkCppError()
     return result`
             );
+          changed = true;
+        }
+      }
+
+      if (entry.name === 'HostFunctionContext.swift') {
+        if (content.includes('@escaping JavaScriptRuntime.')) {
+          content = content.replace(/@escaping\s+JavaScriptRuntime\./g, 'JavaScriptRuntime.');
+          changed = true;
+        }
+      }
+
+      if (entry.name === 'JavaScriptObject.swift') {
+        if (content.includes('sending @escaping JavaScriptRuntime.')) {
+          content = content.replace(/sending\s+@escaping\s+JavaScriptRuntime\./g, 'JavaScriptRuntime.');
           changed = true;
         }
       }
