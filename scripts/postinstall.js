@@ -176,27 +176,48 @@ if (fs.existsSync(coreIosDir)) {
           }
         }
 
+        // Fix ViewDefinition extension @MainActor in ViewDefinition.swift
+        if (entry.name === 'ViewDefinition.swift') {
+          if (content.includes('extension UIView: @MainActor AnyArgument {')) {
+            content = content.replace('extension UIView: @MainActor AnyArgument {', 'extension UIView: AnyArgument {');
+            changed = true;
+          }
+        }
+
+        // Fix SwiftUIVirtualView extension @MainActor in SwiftUIVirtualView.swift
+        if (entry.name === 'SwiftUIVirtualView.swift') {
+          if (content.includes('extension ExpoSwiftUI.SwiftUIVirtualView: @MainActor ExpoSwiftUI.ViewWrapper {')) {
+            content = content.replace('extension ExpoSwiftUI.SwiftUIVirtualView: @MainActor ExpoSwiftUI.ViewWrapper {', '@MainActor\nextension ExpoSwiftUI.SwiftUIVirtualView: ExpoSwiftUI.ViewWrapper {');
+            changed = true;
+          }
+          if (content.includes('extension ExpoSwiftUI.SwiftUIVirtualViewDev: @MainActor ExpoSwiftUI.ViewWrapper {')) {
+            content = content.replace('extension ExpoSwiftUI.SwiftUIVirtualViewDev: @MainActor ExpoSwiftUI.ViewWrapper {', '@MainActor\nextension ExpoSwiftUI.SwiftUIVirtualViewDev: ExpoSwiftUI.ViewWrapper {');
+            changed = true;
+          }
+        }
+
+        // Fix SystemMenuTouchGate import _Concurrency in SystemMenuTouchGate.swift
+        if (entry.name === 'SystemMenuTouchGate.swift') {
+          if (!content.includes('import _Concurrency')) {
+            content = "import _Concurrency\n" + content;
+            changed = true;
+          }
+        }
+
         // Fix Utilities performSynchronouslyOnMainActor Sendable constraint in Utilities.swift
         if (entry.name === 'Utilities.swift') {
-          const oldFn = `internal func performSynchronouslyOnMainActor<Result: Sendable>(_ closure: @MainActor () throws -> Result) rethrows -> Result {
-  if Thread.isMainThread {
-    return try MainActor.assumeIsolated(closure)
-  }
-  return try DispatchQueue.main.sync(execute: closure)
-}`;
           const newFn = `internal func performSynchronouslyOnMainActor<Result>(_ closure: @MainActor () throws -> Result) rethrows -> Result {
-  typealias NonisolatedClosure = () throws -> Result
-  let nonisolatedClosure = unsafeBitCast(closure, to: NonisolatedClosure.self)
   if Thread.isMainThread {
-    return try nonisolatedClosure()
+    return try MainActor.assumeIsolated {
+      return try closure()
+    }
   }
-  return try DispatchQueue.main.sync(execute: nonisolatedClosure)
+  return try DispatchQueue.main.sync {
+    return try closure()
+  }
 }`;
-          if (content.includes(oldFn)) {
-            content = content.replace(oldFn, newFn);
-            changed = true;
-          } else if (content.includes('func performSynchronouslyOnMainActor<Result: Sendable>')) {
-            content = content.replace('func performSynchronouslyOnMainActor<Result: Sendable>', 'func performSynchronouslyOnMainActor<Result>');
+          if (content.includes('func performSynchronouslyOnMainActor')) {
+            content = content.replace(/internal func performSynchronouslyOnMainActor[\s\S]*?\n\}/m, newFn);
             changed = true;
           }
         }
