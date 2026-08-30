@@ -20,6 +20,7 @@ import {
   Linking,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import * as Updates from 'expo-updates';
 
 import { useLapCounter, LapMode } from './src/state/useLapCounter';
 import type { DetectorState } from './src/logic/lapDetector';
@@ -167,6 +168,21 @@ export default function App() {
       }
     };
     loadRemotePricing();
+  }, []);
+
+  useEffect(() => {
+    async function checkAutoUpdates() {
+      try {
+        const update = await Updates.checkForUpdateAsync();
+        if (update.isAvailable) {
+          await Updates.fetchUpdateAsync();
+          await Updates.reloadAsync();
+        }
+      } catch (e) {
+        // Ignored when running outside production binary or in test mode
+      }
+    }
+    checkAutoUpdates();
   }, []);
 
   const {
@@ -2491,6 +2507,36 @@ function SettingsScreen(props: {
           </View>
         </Pressable>
         <Text style={styles.settingsDescription}>Orbit Pro - built for athletes who take their training seriously.</Text>
+        <Pressable
+          onPress={async () => {
+            try {
+              Alert.alert('Checking for Updates', 'Connecting to EAS servers...');
+              const update = await Updates.checkForUpdateAsync();
+              if (update.isAvailable) {
+                await Updates.fetchUpdateAsync();
+                Alert.alert('Update Downloaded', 'Restarting app to apply latest features...', [
+                  { text: 'Restart Now', onPress: () => Updates.reloadAsync() }
+                ]);
+              } else {
+                Alert.alert('Up to Date', 'You are already running the latest version of Orbit.');
+              }
+            } catch (err: any) {
+              Alert.alert('Update Check', err?.message || 'Unable to fetch updates.');
+            }
+          }}
+          style={{
+            marginTop: 12,
+            backgroundColor: 'rgba(59, 130, 246, 0.15)',
+            borderWidth: 1,
+            borderColor: '#3b82f6',
+            paddingVertical: 10,
+            paddingHorizontal: 12,
+            borderRadius: 10,
+            alignItems: 'center',
+          }}
+        >
+          <Text style={{ color: '#93c5fd', fontWeight: '700', fontSize: 13 }}>🔄 Check for App Updates</Text>
+        </Pressable>
       </View>
 
       {/* LEGAL */}
