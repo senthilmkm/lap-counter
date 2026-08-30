@@ -1257,9 +1257,24 @@ if (fs.existsSync(buildXcframeworkScript)) {
     scriptContent = scriptContent.replace(/\s*OTHER_SWIFT_FLAGS="[^"]*"\s*\\?/g, '');
     changedScript = true;
   }
+  if (scriptContent.includes('cp "${generated_maps}/${PACKAGE_NAME}-Swift.h" "$headers_dir/"')) {
+    scriptContent = scriptContent.replace(
+      'cp "${generated_maps}/${PACKAGE_NAME}-Swift.h" "$headers_dir/"',
+      `local swift_h="\${generated_maps}/\${PACKAGE_NAME}-Swift.h"
+  if [[ ! -f "$swift_h" ]]; then
+    swift_h=$(find "\${DERIVED_DATA_PATH}" -name "\${PACKAGE_NAME}-Swift.h" 2>/dev/null | head -n 1 || true)
+  fi
+  if [[ -n "$swift_h" && -f "$swift_h" ]]; then
+    cp "$swift_h" "$headers_dir/"
+  else
+    touch "\${headers_dir}/\${PACKAGE_NAME}-Swift.h"
+  fi`
+    );
+    changedScript = true;
+  }
   if (changedScript) {
     fs.writeFileSync(buildXcframeworkScript, scriptContent, 'utf8');
-    console.log('✅ Patched build-xcframework.sh (removed -quiet and OTHER_SWIFT_FLAGS override)');
+    console.log('✅ Patched build-xcframework.sh (removed -quiet, robust Swift.h copy)');
   }
 }
 
