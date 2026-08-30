@@ -133,20 +133,29 @@ if (fs.existsSync(coreIosDir)) {
 
         // Fix ViewProps nonisolated init() in SwiftUIViewProps.swift
         if (entry.name === 'SwiftUIViewProps.swift') {
-          if (content.includes('public required init() {}')) {
-            content = content.replace('public required init() {}', 'public required nonisolated init() {}');
+          if (content.includes('public required nonisolated init() {}')) {
+            content = content.replace('public required nonisolated init() {}', 'public nonisolated required init() {}');
+            changed = true;
+          } else if (content.includes('public required init() {}')) {
+            content = content.replace('public required init() {}', 'public nonisolated required init() {}');
             changed = true;
           }
-          if (content.includes('public required init(rawProps:')) {
-            content = content.replace('public required init(rawProps:', 'public required nonisolated init(rawProps:');
+          if (content.includes('public required nonisolated init(rawProps:')) {
+            content = content.replace('public required nonisolated init(rawProps:', 'public nonisolated required init(rawProps:');
+            changed = true;
+          } else if (content.includes('public required init(rawProps:')) {
+            content = content.replace('public required init(rawProps:', 'public nonisolated required init(rawProps:');
             changed = true;
           }
         }
 
         // Fix ShadowNodeProxy nonisolated init() in SwiftUIShadowNodeProxy.swift
         if (entry.name === 'SwiftUIShadowNodeProxy.swift') {
-          if (content.includes('public required init() {}')) {
-            content = content.replace('public required init() {}', 'public required nonisolated init() {}');
+          if (content.includes('public required nonisolated init() {}')) {
+            content = content.replace('public required nonisolated init() {}', 'public nonisolated required init() {}');
+            changed = true;
+          } else if (content.includes('public required init() {}')) {
+            content = content.replace('public required init() {}', 'public nonisolated required init() {}');
             changed = true;
           }
         }
