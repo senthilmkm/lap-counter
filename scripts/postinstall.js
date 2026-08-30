@@ -95,7 +95,7 @@ for (const podspecPath of podspecsToFix) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 1c. Patch expo-modules-core Swift files for Swift 6 existential protocol syntax ('any Record')
+// 1c. Patch expo-modules-core Swift files for Swift 6 syntax (weak var, any Record)
 // ─────────────────────────────────────────────────────────────────────────────
 const coreIosDir = path.join(__dirname, '..', 'node_modules', 'expo-modules-core', 'ios');
 if (fs.existsSync(coreIosDir)) {
@@ -108,6 +108,29 @@ if (fs.existsSync(coreIosDir)) {
       } else if (entry.name.endsWith('.swift')) {
         let content = fs.readFileSync(fullPath, 'utf8');
         let changed = false;
+
+        // Fix 'weak let' -> 'weak var'
+        if (content.includes('weak let')) {
+          content = content.replace(/\bweak\s+let\b/g, 'weak var');
+          changed = true;
+        }
+
+        // Fix dynamic record cast in DynamicConvertibleType.swift
+        if (entry.name === 'DynamicConvertibleType.swift') {
+          const oldCastBlock = `    if let recordType = innerType as? (any Record).Type {
+      return try recordType.from(object: jsValue.asObject(), appContext: appContext)
+    }`;
+          const oldCastBlock2 = `    if let recordType = innerType as? any Record.Type {
+      return try recordType.from(object: jsValue.asObject(), appContext: appContext)
+    }`;
+          if (content.includes(oldCastBlock)) {
+            content = content.replace(oldCastBlock, '    return try innerType.convert(from: jsValue.getAny(), appContext: appContext)');
+            changed = true;
+          } else if (content.includes(oldCastBlock2)) {
+            content = content.replace(oldCastBlock2, '    return try innerType.convert(from: jsValue.getAny(), appContext: appContext)');
+            changed = true;
+          }
+        }
 
         if (content.includes('as? Record') && !content.includes('as? any Record')) {
           content = content.replace(/as\?\s+Record\b/g, 'as? any Record');
@@ -125,14 +148,10 @@ if (fs.existsSync(coreIosDir)) {
           content = content.replace('callAsFunction(_ payload: Record)', 'callAsFunction(_ payload: any Record)');
           changed = true;
         }
-        if (content.includes('innerType as? any Record.Type')) {
-          content = content.replace('innerType as? any Record.Type', 'innerType as? (any Record).Type');
-          changed = true;
-        }
 
         if (changed) {
           fs.writeFileSync(fullPath, content, 'utf8');
-          console.log(`✅ Patched ${entry.name} in expo-modules-core (any Record syntax)`);
+          console.log(`✅ Patched ${entry.name} in expo-modules-core`);
         }
       }
     }
