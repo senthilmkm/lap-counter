@@ -18,7 +18,7 @@ module.exports = function withSwift5(config) {
         if flags.is_a?(Array)
           flags = flags.join(' ')
         end
-        flags = "#{flags} -suppress-warnings -strict-concurrency=minimal -Xfrontend -disable-actor-data-race-checks"
+        flags = "#{flags} -suppress-warnings -Xfrontend -disable-actor-data-race-checks"
         config.build_settings['OTHER_SWIFT_FLAGS'] = flags
       end
     end
