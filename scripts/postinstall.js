@@ -866,7 +866,7 @@ extension Task where Failure == any Error {
         if (content.includes('self.init(runtime, items: items)')) {
           content = content.replace(
             'self.init(runtime, items: items)',
-            'self.runtime = runtime\n    self.pointee = facebook.jsi.Array(runtime.pointee, items.count)\n    for (index, item) in items.enumerated() {\n      self.setValue(item, at: index)\n    }'
+            'self.runtime = runtime\n    self.pointee = facebook.jsi.Array(runtime.pointee, items.count)\n    for (index, item) in items.enumerated() {\n      self[index] = item\n    }'
           );
           changed = true;
         }
@@ -909,7 +909,7 @@ extension Task where Failure == any Error {
         if (content.includes('try self.init(runtime, JavaScriptObject(runtime, object))')) {
           content = content.replace(
             'try self.init(runtime, JavaScriptObject(runtime, object))',
-            'self.runtime = runtime\n    longLivedState.object.reset(JavaScriptValue(runtime, object.asValue()))\n    try setUpCallbacks()\n    runtime.longLivedObjects.add(longLivedState)'
+            'self.runtime = runtime\n    let jsObject = JavaScriptObject(runtime, object)\n    longLivedState.object.reset(jsObject.asValue())\n    try setUpCallbacks()\n    runtime.longLivedObjects.add(longLivedState)'
           );
         }
         changed = true;
