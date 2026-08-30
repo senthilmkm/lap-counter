@@ -65,12 +65,10 @@ jobs:
         if: failure()
         run: |
           echo "=== Searching for all log files in /Users/runner ==="
-          find /Users/runner/work /Users/runner/Library/Logs /private/var/folders /tmp -type f \( -name "*.log" -o -name "*gym*" -o -name "*xcodebuild*" \) 2>/dev/null | grep -v "CoreSimulator" | while read -r logfile; do
-            if [ -s "$logfile" ] && [ $(stat -f%z "$logfile" 2>/dev/null || echo 0) -lt 50000000 ]; then
-              echo "================================================================================"
-              echo "Log: $logfile"
-              echo "================================================================================"
-              tail -n 120 "$logfile"
-            fi
+          find /Users/runner/work/eas-build /Users/runner/Library/Logs/gym -type f 2>/dev/null | while read -r logfile; do
+            echo "================================================================================"
+            echo "Log: $logfile"
+            echo "================================================================================"
+            tail -n 120 "$logfile"
           done
 
