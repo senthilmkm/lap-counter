@@ -26,6 +26,7 @@ const path = require('path');
 //    - Replace 'weak let' with 'nonisolated(unsafe) weak var' (for Swift 6.0 Sendable compatibility).
 //    - Remove explicit 'Escapable' protocol conformance.
 //    - Remove 'public' from 'extension expo.CppError' members (C++ types do not support library evolution).
+//    - Patch JavaScriptActor.swift to use standard rethrows (removes typed throws & cross-actor call).
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -253,6 +254,7 @@ if (fs.existsSync(runtimeSchedulerPath)) {
 //    - 'weak let' / 'weak var' -> 'nonisolated(unsafe) weak var' (Sendable safety)
 //    - Remove ', Escapable'
 //    - In JavaScriptError.swift, make 'extension expo.CppError' member internal
+//    - In JavaScriptActor.swift, rewrite assumeIsolated to use rethrows and avoid typed throws & runIsolated
 // ─────────────────────────────────────────────────────────────────────────────
 const jsiSourcesDir = path.join(
   __dirname, '..', 'node_modules', 'expo-modules-jsi', 'apple', 'Sources', 'ExpoModulesJSI'
@@ -295,6 +297,21 @@ function patchSwiftFilesRecursively(dir) {
         changed = true;
       }
 
+      // Fix JavaScriptActor.swift for Swift 6.0
+      if (entry.name === 'JavaScriptActor.swift') {
+        const actorPattern = /public static func assumeIsolated[\s\S]*?internal static func runIsolated[^\}]*\}/;
+        if (actorPattern.test(content)) {
+          const replacement = `public static func assumeIsolated<T: ~Copyable>(_ operation: @JavaScriptActor () throws -> T) rethrows -> T {
+    checkIsolated()
+    typealias NonisolatedFn = () throws -> T
+    let nonisolatedOp = unsafeBitCast(operation, to: NonisolatedFn.self)
+    return try nonisolatedOp()
+  }`;
+          content = content.replace(actorPattern, replacement);
+          changed = true;
+        }
+      }
+
       if (changed) {
         fs.writeFileSync(fullPath, content, 'utf8');
       }
@@ -304,7 +321,7 @@ function patchSwiftFilesRecursively(dir) {
 
 if (fs.existsSync(jsiSourcesDir)) {
   patchSwiftFilesRecursively(jsiSourcesDir);
-  console.log('✅ Patched expo-modules-jsi Swift files (nonisolated weak var, Escapable, CppError)');
+  console.log('✅ Patched expo-modules-jsi Swift files (nonisolated weak var, Escapable, CppError, JavaScriptActor)');
 } else {
   console.log('⚠️  expo-modules-jsi Sources dir not found');
 }
