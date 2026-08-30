@@ -1206,4 +1206,24 @@ if (fs.existsSync(jsiSourcesDir)) {
   console.log('⚠️  expo-modules-jsi Sources dir not found');
 }
 
+// Patch build-xcframework.sh to remove -quiet for full build visibility
+const buildXcframeworkScript = path.join(
+  __dirname,
+  '..',
+  'node_modules',
+  'expo-modules-jsi',
+  'apple',
+  'scripts',
+  'build-xcframework.sh'
+);
+
+if (fs.existsSync(buildXcframeworkScript)) {
+  let scriptContent = fs.readFileSync(buildXcframeworkScript, 'utf8');
+  if (scriptContent.includes('-quiet')) {
+    scriptContent = scriptContent.replace(/-quiet\s*\\?\n?/g, '');
+    fs.writeFileSync(buildXcframeworkScript, scriptContent, 'utf8');
+    console.log('✅ Patched build-xcframework.sh (removed -quiet)');
+  }
+}
+
 console.log('✅ Postinstall completed successfully');
