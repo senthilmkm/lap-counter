@@ -717,21 +717,6 @@ extension Task where Failure == any Error {
 
       // Fix JavaScriptRuntime.swift HostFunctionClosure, HostObject & RuntimeScheduler creation
       if (entry.name === 'JavaScriptRuntime.swift') {
-        if (content.includes('public typealias SyncFunctionClosure =')) {
-          content = content.replace(
-            /public\s+typealias\s+SyncFunctionClosure\s*=\s*@JavaScriptActor\s*\(/g,
-            'public typealias SyncFunctionClosure = ('
-          );
-          content = content.replace(
-            /public\s+typealias\s+UnownedThisSyncFunctionClosure\s*=\s*@JavaScriptActor\s*\(/g,
-            'public typealias UnownedThisSyncFunctionClosure = ('
-          );
-          content = content.replace(
-            /public\s+typealias\s+AsyncFunctionClosure\s*=\s*@JavaScriptActor\s*\(/g,
-            'public typealias AsyncFunctionClosure = ('
-          );
-          changed = true;
-        }
 
         if (content.includes('return expo.HostFunctionClosure(context, call, deallocate)')) {
           content = content.replace(
@@ -896,58 +881,69 @@ internal func capturingCppErrors<R>(_ block: () throws -> R) throws -> R {
       }
 
       if (entry.name === 'HostObjectContext.swift') {
-        if (content.includes('@JavaScriptActor')) {
-          content = content.replace(/typealias\s+(\w+)\s*=\s*@JavaScriptActor/g, 'typealias $1 =');
-          changed = true;
-        }
-        if (content.includes('internal final class HostObjectContext: Sendable')) {
-          content = content.replace(
-            'internal final class HostObjectContext: Sendable',
-            'internal final class HostObjectContext: @unchecked Sendable'
-          );
-          changed = true;
-        }
-      }
+        content = `/// Context that captures Swift types to pass them to JSI host object as an unmanaged pointer for interoperability with C++.
+internal final class HostObjectContext: @unchecked Sendable {
+  typealias Getter = @JavaScriptActor (_ propertyName: String) throws -> JavaScriptValue
+  typealias Setter = @JavaScriptActor (_ propertyName: String, _ value: JavaScriptValue) throws -> Void
+  typealias PropertyNamesGetter = @JavaScriptActor () -> [String]
+  typealias Deallocator = @JavaScriptActor () -> Void
 
-      // Remove @escaping when used with function typealiases (Swift 6.0 requirement)
-      if (content.includes('@escaping SyncFunctionClosure') ||
-          content.includes('@escaping UnownedThisSyncFunctionClosure') ||
-          content.includes('@escaping AsyncFunctionClosure') ||
-          content.includes('@escaping JavaScriptRuntime.') ||
-          content.includes('@escaping Getter') ||
-          content.includes('@escaping PropertyNamesGetter') ||
-          content.includes('@escaping Deallocator') ||
-          content.includes('@escaping Factory')) {
-        content = content.replace(/sending\s+@escaping\s+([A-Z]\w*Closure)/g, 'sending $1');
-        content = content.replace(/@escaping\s+([A-Z]\w*Closure)/g, '$1');
-        content = content.replace(/@escaping\s+JavaScriptRuntime\.([A-Z]\w*Closure)/g, 'JavaScriptRuntime.$1');
-        content = content.replace(/@escaping\s+(Getter|Setter|PropertyNamesGetter|Deallocator|Factory)/g, '$1');
+  nonisolated(unsafe) weak var runtime: JavaScriptRuntime?
+  let get: Getter
+  let set: Setter?
+  let getPropertyNames: PropertyNamesGetter
+  let dealloc: Deallocator
+
+  init(
+    runtime: JavaScriptRuntime,
+    _ get: @escaping Getter,
+    _ set: Setter?,
+    _ getPropertyNames: @escaping PropertyNamesGetter,
+    _ dealloc: @escaping Deallocator
+  ) {
+    self.runtime = runtime
+    self.get = get
+    self.set = set
+    self.getPropertyNames = getPropertyNames
+    self.dealloc = dealloc
+  }
+}
+`;
         changed = true;
       }
 
       if (entry.name === 'HostFunctionContext.swift') {
-        if (content.includes('internal final class HostFunctionContext: Sendable')) {
-          content = content.replace(
-            'internal final class HostFunctionContext: Sendable',
-            'internal final class HostFunctionContext: @unchecked Sendable'
-          );
-          content = content.replace(
-            'internal final class UnownedThisHostFunctionContext: Sendable',
-            'internal final class UnownedThisHostFunctionContext: @unchecked Sendable'
-          );
-          changed = true;
-        }
-        if (content.includes('@escaping JavaScriptRuntime.')) {
-          content = content.replace(/@escaping\s+JavaScriptRuntime\./g, 'JavaScriptRuntime.');
-          changed = true;
-        }
-      }
+        content = `/// Context that captures Swift values to pass them to JSI host function as an unmanaged pointer for interoperability with C++.
+internal final class HostFunctionContext: @unchecked Sendable {
+  nonisolated(unsafe) weak var runtime: JavaScriptRuntime?
+  let name: String?
+  let call: JavaScriptRuntime.SyncFunctionClosure
 
-      if (entry.name === 'JavaScriptObject.swift') {
-        if (content.includes('sending @escaping JavaScriptRuntime.')) {
-          content = content.replace(/sending\s+@escaping\s+JavaScriptRuntime\./g, 'JavaScriptRuntime.');
-          changed = true;
-        }
+  init(runtime: JavaScriptRuntime, name: String? = nil, _ function: @escaping JavaScriptRuntime.SyncFunctionClosure) {
+    self.runtime = runtime
+    self.name = name
+    self.call = function
+  }
+}
+
+/// Counterpart to \`\`HostFunctionContext\`\` for host functions whose closure receives \`this\` as a
+/// borrowed \`\`JavaScriptUnownedValue\`\` (see \`\`JavaScriptRuntime/UnownedThisSyncFunctionClosure\`\`).
+internal final class UnownedThisHostFunctionContext: @unchecked Sendable {
+  nonisolated(unsafe) weak var runtime: JavaScriptRuntime?
+  let name: String?
+  let call: JavaScriptRuntime.UnownedThisSyncFunctionClosure
+
+  init(
+    runtime: JavaScriptRuntime, name: String? = nil,
+    _ function: @escaping JavaScriptRuntime.UnownedThisSyncFunctionClosure
+  ) {
+    self.runtime = runtime
+    self.name = name
+    self.call = function
+  }
+}
+`;
+        changed = true;
       }
 
       // Fix JavaScriptActor.swift for Swift 6.0
