@@ -194,7 +194,7 @@ let package = Package(
       dependencies: testFrameworks.dependencies
     )
   ] + testFrameworks.binaryTargets,
-  swiftLanguageModes: [.v6],
+  swiftLanguageModes: [.v5],
   cxxLanguageStandard: .cxx20
 )
 
