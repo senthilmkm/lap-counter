@@ -238,6 +238,18 @@ if (fs.existsSync(coreIosDir)) {
           }
         }
 
+        // Fix ExpoSwiftUI in ExpoSwiftUI.swift
+        if (entry.name === 'ExpoSwiftUI.swift') {
+          if (content.includes('internal protocol FocusableViewContainer {')) {
+            content = content.replace('internal protocol FocusableViewContainer {', 'internal protocol FocusableViewContainer: AnyObject {');
+            changed = true;
+          }
+          if (content.includes('public protocol ViewWrapper {')) {
+            content = content.replace('public protocol ViewWrapper {', 'public protocol ViewWrapper: AnyObject {');
+            changed = true;
+          }
+        }
+
         // Fix Utilities in Utilities.swift
         if (entry.name === 'Utilities.swift') {
           const newMainThreadFn = `internal func performSynchronouslyOnMainThread<Result>(_ closure: () -> Result) -> Result {
