@@ -164,7 +164,6 @@ let package = Package(
           "-clang-header-expose-decls=has-expose-attr",
 
           "-Xcc", "-fmodule-map-file=\\(generatedModuleMap)",
-          "-Xfrontend", "-fmodule-map-file=\\(generatedModuleMap)",
 
           "-Xcc", "-iapinotes-modules",
           "-Xcc", apiNotesPath
