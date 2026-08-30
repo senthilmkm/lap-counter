@@ -188,12 +188,6 @@ if (fs.existsSync(coreIosDir)) {
               'extension UIView: AnyArgument {\n  nonisolated public static func getDynamicType()'
             );
             changed = true;
-          } else if (content.includes('extension UIView: AnyArgument {\n  public nonisolated static func getDynamicType()')) {
-            content = content.replace(
-              'extension UIView: AnyArgument {\n  public nonisolated static func getDynamicType()',
-              'extension UIView: AnyArgument {\n  nonisolated public static func getDynamicType()'
-            );
-            changed = true;
           }
         }
 
@@ -205,68 +199,24 @@ if (fs.existsSync(coreIosDir)) {
           }
         }
 
-        // Fix SwiftUIViewDefinition.swift nonisolated getDynamicType
+        // Fix SwiftUIViewDefinition.swift: ExpoSwiftUIView is a protocol and not @MainActor, so getDynamicType must be clean public static func without duplicate nonisolated
         if (entry.name === 'SwiftUIViewDefinition.swift') {
-          if (content.includes('extension ExpoSwiftUIView {\n  public static func getDynamicType()')) {
-            content = content.replace('extension ExpoSwiftUIView {\n  public static func getDynamicType()', 'extension ExpoSwiftUIView {\n  nonisolated public static func getDynamicType()');
+          if (content.includes('extension ExpoSwiftUIView {\n  nonisolated public static func getDynamicType()')) {
+            content = content.replace('extension ExpoSwiftUIView {\n  nonisolated public static func getDynamicType()', 'extension ExpoSwiftUIView {\n  public static func getDynamicType()');
             changed = true;
           } else if (content.includes('extension ExpoSwiftUIView {\n  public nonisolated static func getDynamicType()')) {
-            content = content.replace('extension ExpoSwiftUIView {\n  public nonisolated static func getDynamicType()', 'extension ExpoSwiftUIView {\n  nonisolated public static func getDynamicType()');
+            content = content.replace('extension ExpoSwiftUIView {\n  public nonisolated static func getDynamicType()', 'extension ExpoSwiftUIView {\n  public static func getDynamicType()');
+            changed = true;
+          } else if (content.includes('  nonisolated public static func getDynamicType() -> AnyDynamicType {')) {
+            content = content.replace('  nonisolated public static func getDynamicType() -> AnyDynamicType {', '  public static func getDynamicType() -> AnyDynamicType {');
             changed = true;
           } else if (content.includes('  public nonisolated static func getDynamicType() -> AnyDynamicType {')) {
-            content = content.replace('  public nonisolated static func getDynamicType() -> AnyDynamicType {', '  nonisolated public static func getDynamicType() -> AnyDynamicType {');
-            changed = true;
-          } else if (content.includes('  public static func getDynamicType() -> AnyDynamicType {')) {
-            content = content.replace('  public static func getDynamicType() -> AnyDynamicType {', '  nonisolated public static func getDynamicType() -> AnyDynamicType {');
+            content = content.replace('  public nonisolated static func getDynamicType() -> AnyDynamicType {', '  public static func getDynamicType() -> AnyDynamicType {');
             changed = true;
           }
         }
 
-        // Fix SwiftUIHostingView.swift unknown attribute @MainActor
-        if (entry.name === 'SwiftUIHostingView.swift') {
-          if (content.includes(': ExpoView, @MainActor AnyExpoSwiftUIHostingView {')) {
-            content = content.replace(': ExpoView, @MainActor AnyExpoSwiftUIHostingView {', ': ExpoView, AnyExpoSwiftUIHostingView {');
-            changed = true;
-          }
-        }
-
-        // Fix ViewModuleWrapper.swift UIKit import
-        if (entry.name === 'ViewModuleWrapper.swift') {
-          if (!content.includes('import UIKit')) {
-            content = "import UIKit\n" + content;
-            changed = true;
-          }
-        }
-
-        // Fix SwiftUIVirtualView in SwiftUIVirtualView.swift
-        if (entry.name === 'SwiftUIVirtualView.swift') {
-          if (content.includes(': SwiftUIVirtualViewObjC, @MainActor ExpoSwiftUIView {')) {
-            content = content.replace(': SwiftUIVirtualViewObjC, @MainActor ExpoSwiftUIView {', ': SwiftUIVirtualViewObjC, ExpoSwiftUIView {');
-            changed = true;
-          }
-          if (content.includes(': SwiftUIVirtualViewObjCDev, @MainActor ExpoSwiftUIView {')) {
-            content = content.replace(': SwiftUIVirtualViewObjCDev, @MainActor ExpoSwiftUIView {', ': SwiftUIVirtualViewObjCDev, ExpoSwiftUIView {');
-            changed = true;
-          }
-          if (content.includes('@MainActor\nextension ExpoSwiftUI.SwiftUIVirtualView: ExpoSwiftUI.ViewWrapper {')) {
-            content = content.replace('@MainActor\nextension ExpoSwiftUI.SwiftUIVirtualView: ExpoSwiftUI.ViewWrapper {', 'extension ExpoSwiftUI.SwiftUIVirtualView: ExpoSwiftUI.ViewWrapper {');
-            changed = true;
-          }
-          if (content.includes('extension ExpoSwiftUI.SwiftUIVirtualView: @MainActor ExpoSwiftUI.ViewWrapper {')) {
-            content = content.replace('extension ExpoSwiftUI.SwiftUIVirtualView: @MainActor ExpoSwiftUI.ViewWrapper {', 'extension ExpoSwiftUI.SwiftUIVirtualView: ExpoSwiftUI.ViewWrapper {');
-            changed = true;
-          }
-          if (content.includes('@MainActor\nextension ExpoSwiftUI.SwiftUIVirtualViewDev: ExpoSwiftUI.ViewWrapper {')) {
-            content = content.replace('@MainActor\nextension ExpoSwiftUI.SwiftUIVirtualViewDev: ExpoSwiftUI.ViewWrapper {', 'extension ExpoSwiftUI.SwiftUIVirtualViewDev: ExpoSwiftUI.ViewWrapper {');
-            changed = true;
-          }
-          if (content.includes('extension ExpoSwiftUI.SwiftUIVirtualViewDev: @MainActor ExpoSwiftUI.ViewWrapper {')) {
-            content = content.replace('extension ExpoSwiftUI.SwiftUIVirtualViewDev: @MainActor ExpoSwiftUI.ViewWrapper {', 'extension ExpoSwiftUI.SwiftUIVirtualViewDev: ExpoSwiftUI.ViewWrapper {');
-            changed = true;
-          }
-        }
-
-        // Fix ExpoSwiftUI.swift ViewWrapper
+        // Fix ExpoSwiftUI in ExpoSwiftUI.swift
         if (entry.name === 'ExpoSwiftUI.swift') {
           if (!content.includes('import _Concurrency')) {
             content = "import _Concurrency\n" + content;
@@ -292,27 +242,21 @@ if (fs.existsSync(coreIosDir)) {
 
         // Fix DynamicSwiftUIViewType in DynamicSwiftUIViewType.swift
         if (entry.name === 'DynamicSwiftUIViewType.swift') {
-          const newCastBody = `    let resolvedView = performSynchronouslyOnMainThread {
-      typealias ResolveFn = @MainActor () -> Any?
-      let resolve: ResolveFn = {
-        if let view = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.SwiftUIVirtualView<ViewType.Props, ViewType>.self) {
-          return view.contentView
-        }
-        if let view = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.SwiftUIVirtualViewDev<ViewType.Props, ViewType>.self) {
-          return view.contentView
-        }
-        if let provider = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.ViewWrapper.self),
-           let innerView = provider.getWrappedView() as? ViewType {
-          return innerView
-        }
-        if let view = appContext.findView(withTag: viewTag, ofType: AnyExpoSwiftUIHostingView.self) {
-          return view.getContentView()
-        }
-        return nil
+          const newCastBody = `    let resolvedView = performSynchronouslyOnMainActor { () -> Any? in
+      if let view = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.SwiftUIVirtualView<ViewType.Props, ViewType>.self) {
+        return view.contentView
       }
-      typealias NonisolatedFn = () -> Any?
-      let nonisolatedResolve = unsafeBitCast(resolve, to: NonisolatedFn.self)
-      return nonisolatedResolve()
+      if let view = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.SwiftUIVirtualViewDev<ViewType.Props, ViewType>.self) {
+        return view.contentView
+      }
+      if let provider = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.ViewWrapper.self),
+         let innerView = provider.getWrappedView() as? ViewType {
+        return innerView
+      }
+      if let view = appContext.findView(withTag: viewTag, ofType: AnyExpoSwiftUIHostingView.self) {
+        return view.getContentView()
+      }
+      return nil
     }
     guard let result = resolvedView else {
       throw Exceptions.SwiftUIViewNotFound((tag: viewTag, type: self.innerType.self))
@@ -327,18 +271,23 @@ if (fs.existsSync(coreIosDir)) {
           } else if (content.includes('return try performSynchronouslyOnMainThreadThrowing {')) {
             content = content.replace(/    return try performSynchronouslyOnMainThreadThrowing \{[\s\S]*?      return try nonisolatedResolve\(\)\n    \}/m, newCastBody);
             changed = true;
+          } else if (content.includes('let resolvedView = performSynchronouslyOnMainThread {')) {
+            content = content.replace(/    let resolvedView = performSynchronouslyOnMainThread \{[\s\S]*?    return result/m, newCastBody);
+            changed = true;
           }
         }
 
         // Fix Utilities in Utilities.swift
         if (entry.name === 'Utilities.swift') {
-          const newMainActorFn = `internal func performSynchronouslyOnMainActor<Result: Sendable>(_ closure: @MainActor () throws -> Result) rethrows -> Result {
+          const newMainActorFn = `internal func performSynchronouslyOnMainActor<Result>(_ closure: @MainActor () -> Result) -> Result {
   if Thread.isMainThread {
-    return try MainActor.assumeIsolated(closure)
+    return MainActor.assumeIsolated(closure)
   }
-  return try DispatchQueue.main.sync {
-    return try MainActor.assumeIsolated(closure)
+  let box = NonisolatedUnsafeVar<Result?>(nil)
+  DispatchQueue.main.sync {
+    box.value = MainActor.assumeIsolated(closure)
   }
+  return box.value!
 }`;
           const newMainThreadFn = `internal func performSynchronouslyOnMainThread<Result>(_ closure: () -> Result) -> Result {
   if Thread.isMainThread {
