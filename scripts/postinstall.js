@@ -361,7 +361,18 @@ if (fs.existsSync(coreIosDir)) {
     return try MainActor.assumeIsolated(closure)
   }
 }`;
-          const newMainThreadFn = `internal func performSynchronouslyOnMainThread<Result>(_ closure: () throws -> Result) throws -> Result {
+          const newMainThreadFn = `internal func performSynchronouslyOnMainThread<Result>(_ closure: () -> Result) -> Result {
+  if Thread.isMainThread {
+    return closure()
+  }
+  let box = NonisolatedUnsafeVar<Result?>(nil)
+  DispatchQueue.main.sync {
+    box.value = closure()
+  }
+  return box.value!
+}
+
+internal func performSynchronouslyOnMainThread<Result>(_ closure: () throws -> Result) throws -> Result {
   if Thread.isMainThread {
     return try closure()
   }
