@@ -50,8 +50,11 @@ jobs:
         run: npm install -g eas-cli@latest
 
       - name: 🔨 Build iOS IPA (Free Local Xcode 16 Build)
+        env:
+          EXPO_DEBUG: "1"
+          EAS_LOCAL_BUILD_DEBUG: "1"
         run: |
-          eas build --platform ios --profile production --local --non-interactive --verbose --output ./Orbit.ipa
+          eas build --platform ios --profile production --local --non-interactive --output ./Orbit.ipa
 
       - name: 📤 Submit IPA to Apple App Store Connect
         run: |
