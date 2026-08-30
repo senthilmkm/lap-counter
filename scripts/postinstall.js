@@ -157,6 +157,7 @@ let package = Package(
         .interoperabilityMode(.Cxx),
 
         .unsafeFlags([
+          "-no-verify-emitted-module-interface",
           "-Xfrontend",
           "-clang-header-expose-decls=has-expose-attr",
 
@@ -1219,10 +1220,21 @@ const buildXcframeworkScript = path.join(
 
 if (fs.existsSync(buildXcframeworkScript)) {
   let scriptContent = fs.readFileSync(buildXcframeworkScript, 'utf8');
+  let changedScript = false;
   if (scriptContent.includes('-quiet')) {
     scriptContent = scriptContent.replace(/-quiet\s*\\?\n?/g, '');
+    changedScript = true;
+  }
+  if (!scriptContent.includes('OTHER_SWIFT_FLAGS=')) {
+    scriptContent = scriptContent.replace(
+      /SWIFT_COMPILATION_MODE=wholemodule\s*\\?/,
+      'SWIFT_COMPILATION_MODE=wholemodule \\\n    OTHER_SWIFT_FLAGS="-no-verify-emitted-module-interface"'
+    );
+    changedScript = true;
+  }
+  if (changedScript) {
     fs.writeFileSync(buildXcframeworkScript, scriptContent, 'utf8');
-    console.log('✅ Patched build-xcframework.sh (removed -quiet)');
+    console.log('✅ Patched build-xcframework.sh (removed -quiet, added -no-verify-emitted-module-interface)');
   }
 }
 
