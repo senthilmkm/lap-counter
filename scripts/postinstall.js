@@ -22,7 +22,7 @@ const path = require('path');
 // 4. expo-modules-jsi C++ Headers:
 //    - RuntimeScheduler.h: Add createRuntimeScheduler factory functions.
 //    - RetainedSwiftPointer.h & HostFunctionClosure.h: Add createHostFunctionClosure factory.
-//    - HostObjectCallbacks.h & HostObject.h: Add makeHostObject factory function.
+//    - HostObjectCallbacks.h & HostObject.h: Add makeHostObject factory function taking IRuntime.
 //
 // 5. expo-modules-jsi Swift sources:
 //    - Replace 'weak let' with 'nonisolated(unsafe) weak var' (for Swift 6.0 Sendable compatibility).
@@ -464,11 +464,61 @@ private:
 
 const hostObjectPath = path.join(cxxIncludeDir, 'HostObject.h');
 if (fs.existsSync(hostObjectPath)) {
-  let hostObjectContent = fs.readFileSync(hostObjectPath, 'utf8');
-  if (!hostObjectContent.includes('makeHostObject')) {
-    const factoryHelper = `
+  const hostObjectClean = `// Copyright 2025-present 650 Industries. All rights reserved.
+
+#ifdef __cplusplus
+
+#include <string>
+#include <vector>
+#include <memory>
+
+#include "CppError.h"
+#include "HostObjectCallbacks.h"
+#include "IRuntimeCompat.h"
+
+namespace jsi = facebook::jsi;
+
+namespace expo {
+
+class JSI_EXPORT HostObject : public jsi::HostObject {
+public:
+
+  explicit HostObject(HostObjectCallbacks callbacks) : jsi::HostObject(), _callbacks(callbacks) {}
+
+  virtual ~HostObject() {
+    _callbacks.dealloc();
+  }
+
+  inline jsi::Value get(jsi::Runtime &runtime, const jsi::PropNameID &name) override {
+    auto result = _callbacks.get(name.utf8(runtime).c_str());
+    if (auto *error = CppError::getCurrent()) {
+      throw error->release();
+    }
+    return result;
+  }
+
+  inline void set(jsi::Runtime &runtime, const jsi::PropNameID &name, const jsi::Value &value) override {
+    _callbacks.set(runtime, name.utf8(runtime).c_str(), value);
+    if (auto *error = CppError::getCurrent()) {
+      throw error->release();
+    }
+  }
+
+  inline std::vector<jsi::PropNameID> getPropertyNames(jsi::Runtime &runtime) override {
+    return _callbacks.getPropertyNames();
+  }
+
+  inline static jsi::Object makeObject(jsi::IRuntime &runtime, HostObjectCallbacks callbacks) {
+    return jsi::Object::createFromHostObject(runtime, std::shared_ptr<HostObject>(new HostObject(callbacks)));
+  }
+
+private:
+  HostObjectCallbacks _callbacks;
+
+}; // class HostObject
+
 inline facebook::jsi::Object makeHostObject(
-  facebook::jsi::Runtime &runtime,
+  facebook::jsi::IRuntime &runtime,
   void *_Nonnull context,
   HostObjectCallbacks::Getter getter,
   HostObjectCallbacks::Setter setter,
@@ -476,16 +526,15 @@ inline facebook::jsi::Object makeHostObject(
   HostObjectCallbacks::Deallocator deallocator
 ) {
   HostObjectCallbacks callbacks(context, getter, setter, propertyNamesGetter, deallocator);
-  return HostObject::makeObject(runtime, std::move(callbacks));
+  return HostObject::makeObject(runtime, callbacks);
 }
+
+} // namespace expo
+
+#endif // __cplusplus
 `;
-    hostObjectContent = hostObjectContent.replace(
-      '} // namespace expo',
-      factoryHelper + '\n} // namespace expo'
-    );
-    fs.writeFileSync(hostObjectPath, hostObjectContent, 'utf8');
-    console.log('✅ Patched HostObject.h with makeHostObject factory function');
-  }
+  fs.writeFileSync(hostObjectPath, hostObjectClean, 'utf8');
+  console.log('✅ Patched HostObject.h with makeHostObject factory function (IRuntime & new HostObject)');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
