@@ -26,7 +26,7 @@ const path = require('path');
 //    - Replace 'weak let' with 'nonisolated(unsafe) weak var' (for Swift 6.0 Sendable compatibility).
 //    - Remove explicit 'Escapable' protocol conformance.
 //    - Remove 'public' from 'extension expo.CppError' members (C++ types do not support library evolution).
-//    - Patch JavaScriptActor.swift to use standard rethrows (removes typed throws & cross-actor call).
+//    - Patch JavaScriptActor.swift with withoutActuallyEscaping & Self.checkIsolated().
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -254,7 +254,7 @@ if (fs.existsSync(runtimeSchedulerPath)) {
 //    - 'weak let' / 'weak var' -> 'nonisolated(unsafe) weak var' (Sendable safety)
 //    - Remove ', Escapable'
 //    - In JavaScriptError.swift, make 'extension expo.CppError' member internal
-//    - In JavaScriptActor.swift, rewrite assumeIsolated to use rethrows and avoid typed throws & runIsolated
+//    - In JavaScriptActor.swift, rewrite assumeIsolated to use withoutActuallyEscaping & Self.checkIsolated()
 // ─────────────────────────────────────────────────────────────────────────────
 const jsiSourcesDir = path.join(
   __dirname, '..', 'node_modules', 'expo-modules-jsi', 'apple', 'Sources', 'ExpoModulesJSI'
@@ -299,17 +299,90 @@ function patchSwiftFilesRecursively(dir) {
 
       // Fix JavaScriptActor.swift for Swift 6.0
       if (entry.name === 'JavaScriptActor.swift') {
-        const actorPattern = /public static func assumeIsolated[\s\S]*?internal static func runIsolated[^\}]*\}/;
-        if (actorPattern.test(content)) {
-          const replacement = `public static func assumeIsolated<T: ~Copyable>(_ operation: @JavaScriptActor () throws -> T) rethrows -> T {
-    checkIsolated()
-    typealias NonisolatedFn = () throws -> T
-    let nonisolatedOp = unsafeBitCast(operation, to: NonisolatedFn.self)
-    return try nonisolatedOp()
-  }`;
-          content = content.replace(actorPattern, replacement);
-          changed = true;
-        }
+        const fullActorReplacement = `import Foundation
+
+@globalActor
+public actor JavaScriptActor: GlobalActor {
+  public static let shared = JavaScriptActor()
+
+  private init() {}
+
+  nonisolated private let executor = JavaScriptExecutor()
+
+  nonisolated public var unownedExecutor: UnownedSerialExecutor {
+    return executor.asUnownedSerialExecutor()
+  }
+
+  @_alwaysEmitIntoClient
+  @inline(__always)
+  public static func assumeIsolated<T: ~Copyable>(_ operation: @JavaScriptActor () throws -> T) rethrows -> T {
+    Self.checkIsolated()
+    return try withoutActuallyEscaping(operation) { escapedOp in
+      typealias RawFn = () throws -> T
+      let raw = unsafeBitCast(escapedOp, to: RawFn.self)
+      return try raw()
+    }
+  }
+
+  @inlinable
+  @inline(__always)
+  public static func checkIsolated() {
+    assert(
+      Thread.current.name == "com.facebook.react.runtime.JavaScript" || !Thread.isMultiThreaded()
+        || ProcessInfo.processInfo.processName == "xctest",
+      "JavaScriptActor operations must be run on the JavaScript thread"
+    )
+  }
+}
+
+internal class JavaScriptExecutor: SerialExecutor, @unchecked Sendable {
+  func enqueue(_ job: UnownedJob) {
+    job.runSynchronously(on: self.asUnownedSerialExecutor())
+  }
+
+  func asUnownedSerialExecutor() -> UnownedSerialExecutor {
+    return UnownedSerialExecutor(ordinary: self)
+  }
+
+  func checkIsolated() {
+    JavaScriptActor.checkIsolated()
+  }
+}
+
+internal actor JavaScriptRuntimeActor {
+  private nonisolated(unsafe) weak var runtime: JavaScriptRuntime?
+  nonisolated private let executor: JavaScriptExecutor
+
+  init(runtime: JavaScriptRuntime) {
+    self.runtime = runtime
+    self.executor = JavaScriptRuntimeExecutor(runtime: runtime)
+  }
+
+  nonisolated var unownedExecutor: UnownedSerialExecutor {
+    return executor.asUnownedSerialExecutor()
+  }
+
+  func execute<R: Sendable>(_ operation: @escaping @JavaScriptActor () async throws -> R) async rethrows -> sending R {
+    return try await operation()
+  }
+}
+
+internal final class JavaScriptRuntimeExecutor: JavaScriptExecutor, @unchecked Sendable {
+  private nonisolated(unsafe) weak var runtime: JavaScriptRuntime?
+
+  init(runtime: JavaScriptRuntime) {
+    self.runtime = runtime
+  }
+
+  override func enqueue(_ job: UnownedJob) {
+    runtime?.schedule(priority: .immediate) {
+      job.runSynchronously(on: self.asUnownedSerialExecutor())
+    }
+  }
+}
+`;
+        content = fullActorReplacement;
+        changed = true;
       }
 
       if (changed) {
