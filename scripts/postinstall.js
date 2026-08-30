@@ -192,6 +192,36 @@ if (fs.existsSync(notifPermModuleSwift)) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 1f. Patch expo-sqlite (ArrayBuffer / NativeArrayBuffer fallback)
+// ─────────────────────────────────────────────────────────────────────────────
+const sqliteModuleSwift = path.join(__dirname, '..', 'node_modules', 'expo-sqlite', 'ios', 'SQLiteModule.swift');
+if (fs.existsSync(sqliteModuleSwift)) {
+  let content = fs.readFileSync(sqliteModuleSwift, 'utf8');
+  if (!content.includes('typealias NativeArrayBuffer = Data')) {
+    const header = `import ExpoModulesCore
+
+public typealias AnyArrayBuffer = Data
+public typealias NativeArrayBuffer = Data
+public typealias ArrayBuffer = Data
+
+extension Data {
+  public static func allocate(size: Int) -> Data {
+    return Data(count: size)
+  }
+  public static func copy(of ptr: UnsafeRawPointer, count: Int) -> Data {
+    return Data(bytes: ptr, count: count)
+  }
+  public var byteLength: Int {
+    return count
+  }
+}`;
+    content = content.replace('import ExpoModulesCore', header);
+    fs.writeFileSync(sqliteModuleSwift, content, 'utf8');
+    console.log('✅ Patched SQLiteModule.swift in expo-sqlite');
+  }
+}
+
 const coreIosDir = path.join(__dirname, '..', 'node_modules', 'expo-modules-core', 'ios');
 if (fs.existsSync(coreIosDir)) {
   function patchCoreSwiftFiles(dir) {
