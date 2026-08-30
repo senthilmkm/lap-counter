@@ -860,25 +860,13 @@ public actor JavaScriptActor: GlobalActor {
     return executor.asUnownedSerialExecutor()
   }
 
-  internal static func assumeIsolated<T>(_ operation: @JavaScriptActor () throws -> T) throws -> T {
+  @discardableResult
+  public static func assumeIsolated<T>(_ operation: () throws -> T) rethrows -> T {
     Self.checkIsolated()
-    typealias RawFn = () throws -> T
-    return try withoutActuallyEscaping(operation) { escapingOp in
-      let raw = unsafeBitCast(escapingOp, to: RawFn.self)
-      return try raw()
-    }
+    return try operation()
   }
 
-  internal static func assumeIsolated<T>(_ operation: @JavaScriptActor () -> T) -> T {
-    Self.checkIsolated()
-    typealias RawFn = () -> T
-    return withoutActuallyEscaping(operation) { escapingOp in
-      let raw = unsafeBitCast(escapingOp, to: RawFn.self)
-      return raw()
-    }
-  }
-
-  internal static func checkIsolated() {
+  public static func checkIsolated() {
     assert(
       Thread.current.name == "com.facebook.react.runtime.JavaScript" || !Thread.isMultiThreaded()
         || ProcessInfo.processInfo.processName == "xctest",
