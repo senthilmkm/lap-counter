@@ -21,6 +21,10 @@ const path = require('path');
 //
 // 4. expo-modules-jsi RuntimeScheduler.h:
 //    Add #ifndef SWIFT_RETURNS_RETAINED fallback define for Swift 6.0 compatibility.
+//
+// 5. expo-modules-jsi Swift sources:
+//    - Replace 'weak let' with 'weak var' (Swift 6.0 requires weak variables to be 'var').
+//    - Remove explicit 'Escapable' protocol conformance (requires Swift 6.2 or experimental flag).
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -241,6 +245,54 @@ if (fs.existsSync(runtimeSchedulerPath)) {
   }
 } else {
   console.log('⚠️  RuntimeScheduler.h not found');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. Patch expo-modules-jsi Swift sources for Swift 6.0 compatibility:
+//    - 'weak let' -> 'weak var'
+//    - Remove ', Escapable'
+// ─────────────────────────────────────────────────────────────────────────────
+const jsiSourcesDir = path.join(
+  __dirname, '..', 'node_modules', 'expo-modules-jsi', 'apple', 'Sources', 'ExpoModulesJSI'
+);
+
+function patchSwiftFilesRecursively(dir) {
+  if (!fs.existsSync(dir)) return;
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      patchSwiftFilesRecursively(fullPath);
+    } else if (entry.isFile() && entry.name.endsWith('.swift')) {
+      let content = fs.readFileSync(fullPath, 'utf8');
+      let changed = false;
+
+      // Replace 'weak let' with 'weak var'
+      if (content.includes('weak let')) {
+        content = content.replace(/\bweak\s+let\b/g, 'weak var');
+        changed = true;
+      }
+
+      // Remove ', Escapable' / ': Escapable' protocol conformance
+      if (content.includes('Escapable')) {
+        content = content
+          .replace(/,\s*Escapable\b/g, '')
+          .replace(/:\s*Escapable\b/g, '');
+        changed = true;
+      }
+
+      if (changed) {
+        fs.writeFileSync(fullPath, content, 'utf8');
+      }
+    }
+  }
+}
+
+if (fs.existsSync(jsiSourcesDir)) {
+  patchSwiftFilesRecursively(jsiSourcesDir);
+  console.log('✅ Patched expo-modules-jsi Swift files (weak var & Escapable)');
+} else {
+  console.log('⚠️  expo-modules-jsi Sources dir not found');
 }
 
 console.log('✅ Postinstall completed successfully');
