@@ -23,8 +23,9 @@ const path = require('path');
 //    Add #ifndef SWIFT_RETURNS_RETAINED fallback define for Swift 6.0 compatibility.
 //
 // 5. expo-modules-jsi Swift sources:
-//    - Replace 'weak let' with 'weak var' (Swift 6.0 requires weak variables to be 'var').
-//    - Remove explicit 'Escapable' protocol conformance (requires Swift 6.2 or experimental flag).
+//    - Replace 'weak let' with 'nonisolated(unsafe) weak var' (for Swift 6.0 Sendable compatibility).
+//    - Remove explicit 'Escapable' protocol conformance.
+//    - Remove 'public' from 'extension expo.CppError' members (C++ types do not support library evolution).
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -249,8 +250,9 @@ if (fs.existsSync(runtimeSchedulerPath)) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 5. Patch expo-modules-jsi Swift sources for Swift 6.0 compatibility:
-//    - 'weak let' -> 'weak var'
+//    - 'weak let' / 'weak var' -> 'nonisolated(unsafe) weak var' (Sendable safety)
 //    - Remove ', Escapable'
+//    - In JavaScriptError.swift, make 'extension expo.CppError' member internal
 // ─────────────────────────────────────────────────────────────────────────────
 const jsiSourcesDir = path.join(
   __dirname, '..', 'node_modules', 'expo-modules-jsi', 'apple', 'Sources', 'ExpoModulesJSI'
@@ -267,9 +269,12 @@ function patchSwiftFilesRecursively(dir) {
       let content = fs.readFileSync(fullPath, 'utf8');
       let changed = false;
 
-      // Replace 'weak let' with 'weak var'
-      if (content.includes('weak let')) {
-        content = content.replace(/\bweak\s+let\b/g, 'weak var');
+      // Replace 'weak let' or plain 'weak var' with 'nonisolated(unsafe) weak var'
+      if (content.includes('weak let') || (content.includes('weak var') && !content.includes('nonisolated(unsafe) weak var'))) {
+        content = content
+          .replace(/\bnonisolated\(unsafe\)\s+weak\s+var\b/g, '___TEMP_NONISOLATED_WEAK___')
+          .replace(/\bweak\s+(?:let|var)\b/g, 'nonisolated(unsafe) weak var')
+          .replace(/___TEMP_NONISOLATED_WEAK___/g, 'nonisolated(unsafe) weak var');
         changed = true;
       }
 
@@ -278,6 +283,15 @@ function patchSwiftFilesRecursively(dir) {
         content = content
           .replace(/,\s*Escapable\b/g, '')
           .replace(/:\s*Escapable\b/g, '');
+        changed = true;
+      }
+
+      // Fix CppError extension in library evolution mode (remove public from members)
+      if (entry.name === 'JavaScriptError.swift' && content.includes('extension expo.CppError')) {
+        content = content.replace(
+          /extension\s+expo\.CppError[^{]*\{[\s\S]*?public\s+var\s+message/,
+          (match) => match.replace('public var message', 'var message')
+        );
         changed = true;
       }
 
@@ -290,7 +304,7 @@ function patchSwiftFilesRecursively(dir) {
 
 if (fs.existsSync(jsiSourcesDir)) {
   patchSwiftFilesRecursively(jsiSourcesDir);
-  console.log('✅ Patched expo-modules-jsi Swift files (weak var & Escapable)');
+  console.log('✅ Patched expo-modules-jsi Swift files (nonisolated weak var, Escapable, CppError)');
 } else {
   console.log('⚠️  expo-modules-jsi Sources dir not found');
 }
