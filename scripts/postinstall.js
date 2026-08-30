@@ -185,7 +185,13 @@ if (fs.existsSync(coreIosDir)) {
           if (content.includes('extension UIView: AnyArgument {\n  public static func getDynamicType()')) {
             content = content.replace(
               'extension UIView: AnyArgument {\n  public static func getDynamicType()',
-              'extension UIView: AnyArgument {\n  public nonisolated static func getDynamicType()'
+              'extension UIView: AnyArgument {\n  nonisolated public static func getDynamicType()'
+            );
+            changed = true;
+          } else if (content.includes('extension UIView: AnyArgument {\n  public nonisolated static func getDynamicType()')) {
+            content = content.replace(
+              'extension UIView: AnyArgument {\n  public nonisolated static func getDynamicType()',
+              'extension UIView: AnyArgument {\n  nonisolated public static func getDynamicType()'
             );
             changed = true;
           }
@@ -202,10 +208,16 @@ if (fs.existsSync(coreIosDir)) {
         // Fix SwiftUIViewDefinition.swift nonisolated getDynamicType
         if (entry.name === 'SwiftUIViewDefinition.swift') {
           if (content.includes('extension ExpoSwiftUIView {\n  public static func getDynamicType()')) {
-            content = content.replace('extension ExpoSwiftUIView {\n  public static func getDynamicType()', 'extension ExpoSwiftUIView {\n  public nonisolated static func getDynamicType()');
+            content = content.replace('extension ExpoSwiftUIView {\n  public static func getDynamicType()', 'extension ExpoSwiftUIView {\n  nonisolated public static func getDynamicType()');
             changed = true;
-          } else if (content.includes('  public static func getDynamicType() -> AnyDynamicType {') && !content.includes('public nonisolated static func getDynamicType()')) {
-            content = content.replace('  public static func getDynamicType() -> AnyDynamicType {', '  public nonisolated static func getDynamicType() -> AnyDynamicType {');
+          } else if (content.includes('extension ExpoSwiftUIView {\n  public nonisolated static func getDynamicType()')) {
+            content = content.replace('extension ExpoSwiftUIView {\n  public nonisolated static func getDynamicType()', 'extension ExpoSwiftUIView {\n  nonisolated public static func getDynamicType()');
+            changed = true;
+          } else if (content.includes('  public nonisolated static func getDynamicType() -> AnyDynamicType {')) {
+            content = content.replace('  public nonisolated static func getDynamicType() -> AnyDynamicType {', '  nonisolated public static func getDynamicType() -> AnyDynamicType {');
+            changed = true;
+          } else if (content.includes('  public static func getDynamicType() -> AnyDynamicType {')) {
+            content = content.replace('  public static func getDynamicType() -> AnyDynamicType {', '  nonisolated public static func getDynamicType() -> AnyDynamicType {');
             changed = true;
           }
         }
