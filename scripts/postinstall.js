@@ -79,17 +79,9 @@ for (const podspecPath of podspecsToFix) {
       );
       changed = true;
     }
-    if (content.includes("s.swift_version  = '5.0'")) {
-      content = content.replace("s.swift_version  = '5.0'", "s.swift_version  = '6.0'");
-      changed = true;
-    }
-    if (content.includes("s.swift_version = '5.0'")) {
-      content = content.replace("s.swift_version = '5.0'", "s.swift_version = '6.0'");
-      changed = true;
-    }
     if (changed) {
       fs.writeFileSync(podspecPath, content, 'utf8');
-      console.log(`✅ Patched ${path.basename(podspecPath)} (build from source, Swift 6.0 mode)`);
+      console.log(`✅ Patched ${path.basename(podspecPath)} (build from source)`);
     }
   }
 }
@@ -228,13 +220,7 @@ if (fs.existsSync(coreIosDir)) {
           }
         }
 
-        // Fix SceneGeometry @MainActor in SceneGeometry.swift
-        if (entry.name === 'SceneGeometry.swift') {
-          if (content.includes('public enum SceneGeometry {') && !content.includes('@MainActor\npublic enum SceneGeometry')) {
-            content = content.replace('public enum SceneGeometry {', '@MainActor\npublic enum SceneGeometry {');
-            changed = true;
-          }
-        }
+
 
         // Fix SwiftUIVirtualView in SwiftUIVirtualView.swift
         if (entry.name === 'SwiftUIVirtualView.swift') {
@@ -356,29 +342,6 @@ internal func performSynchronouslyOnMainThreadThrowing<Result>(_ closure: () thr
           }
         }
 
-        // Fix ExpoReactDelegate MainActor & UIKit in ExpoReactDelegate.swift
-        if (entry.name === 'ExpoReactDelegate.swift') {
-          if (!content.includes('import UIKit')) {
-            content = "import UIKit\nimport _Concurrency\n" + content;
-            changed = true;
-          }
-          if (content.includes('public class ExpoReactDelegate: NSObject {') && !content.includes('@MainActor')) {
-            content = content.replace('public class ExpoReactDelegate: NSObject {', '@MainActor\npublic class ExpoReactDelegate: NSObject {');
-            changed = true;
-          }
-        }
-
-        // Fix ExpoReactDelegateHandler MainActor & UIKit in ExpoReactDelegateHandler.swift
-        if (entry.name === 'ExpoReactDelegateHandler.swift') {
-          if (!content.includes('import UIKit')) {
-            content = "import UIKit\nimport _Concurrency\n" + content;
-            changed = true;
-          }
-          if (content.includes('open class ExpoReactDelegateHandler: NSObject {') && !content.includes('@MainActor')) {
-            content = content.replace('open class ExpoReactDelegateHandler: NSObject {', '@MainActor\nopen class ExpoReactDelegateHandler: NSObject {');
-            changed = true;
-          }
-        }
 
         // Fix cast in DynamicConvertibleType.swift
         if (entry.name === 'DynamicConvertibleType.swift') {
