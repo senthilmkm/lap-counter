@@ -228,9 +228,9 @@ if (fs.existsSync(coreIosDir)) {
           }
         }
 
-        // Fix Utilities performSynchronouslyOnMainActor Sendable constraint in Utilities.swift
+        // Fix Utilities performSynchronouslyOnMainActor & performSynchronouslyOnMainThread in Utilities.swift
         if (entry.name === 'Utilities.swift') {
-          const newFn = `internal func performSynchronouslyOnMainActor<Result: Sendable>(_ closure: @MainActor () throws -> Result) rethrows -> Result {
+          const newMainActorFn = `internal func performSynchronouslyOnMainActor<Result: Sendable>(_ closure: @MainActor () throws -> Result) rethrows -> Result {
   if Thread.isMainThread {
     return try MainActor.assumeIsolated(closure)
   }
@@ -238,8 +238,31 @@ if (fs.existsSync(coreIosDir)) {
     return try MainActor.assumeIsolated(closure)
   }
 }`;
+          const newMainThreadFn = `internal func performSynchronouslyOnMainThread<Result>(_ closure: () throws -> Result) rethrows -> Result {
+  if Thread.isMainThread {
+    return try closure()
+  }
+  let box = NonisolatedUnsafeVar<Swift.Result<Result, Error>?>(nil)
+  DispatchQueue.main.sync {
+    do {
+      box.value = .success(try closure())
+    } catch {
+      box.value = .failure(error)
+    }
+  }
+  switch box.value! {
+  case .success(let val):
+    return val
+  case .failure(let err):
+    throw err
+  }
+}`;
           if (content.includes('func performSynchronouslyOnMainActor')) {
-            content = content.replace(/internal func performSynchronouslyOnMainActor[\s\S]*?\n\}/m, newFn);
+            content = content.replace(/internal func performSynchronouslyOnMainActor[\s\S]*?\n\}/m, newMainActorFn);
+            changed = true;
+          }
+          if (content.includes('func performSynchronouslyOnMainThread')) {
+            content = content.replace(/internal func performSynchronouslyOnMainThread[\s\S]*?\n\}/m, newMainThreadFn);
             changed = true;
           }
         }
