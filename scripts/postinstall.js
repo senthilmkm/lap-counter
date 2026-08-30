@@ -785,11 +785,20 @@ public actor JavaScriptActor: GlobalActor {
 
   @_alwaysEmitIntoClient
   @inline(__always)
-  public static func assumeIsolated<T: ~Copyable>(_ operation: @escaping @JavaScriptActor () throws -> T) rethrows -> T {
+  public static func assumeIsolated<T: ~Copyable>(_ operation: @escaping @JavaScriptActor () throws -> T) throws -> T {
     Self.checkIsolated()
     typealias RawFn = () throws -> T
     let raw = unsafeBitCast(operation, to: RawFn.self)
     return try raw()
+  }
+
+  @_alwaysEmitIntoClient
+  @inline(__always)
+  public static func assumeIsolated<T: ~Copyable>(_ operation: @escaping @JavaScriptActor () -> T) -> T {
+    Self.checkIsolated()
+    typealias RawFn = () -> T
+    let raw = unsafeBitCast(operation, to: RawFn.self)
+    return raw()
   }
 
   @inlinable
