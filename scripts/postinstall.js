@@ -19,14 +19,16 @@ const path = require('path');
 //    Replace with a clean Swift 6.0 Package.swift (removing Swift 6.2 tools version,
 //    experimental features, and trailing commas in argument lists that break Swift 6.0).
 //
-// 4. expo-modules-jsi RuntimeScheduler.h:
-//    Add #ifndef SWIFT_RETURNS_RETAINED fallback define for Swift 6.0 compatibility.
+// 4. expo-modules-jsi C++ Headers:
+//    - RuntimeScheduler.h: Add #ifndef SWIFT_RETURNS_RETAINED fallback define.
+//    - HostFunctionClosure.h & RetainedSwiftPointer.h: Use function pointer syntax for Closure/Deallocator.
 //
 // 5. expo-modules-jsi Swift sources:
 //    - Replace 'weak let' with 'nonisolated(unsafe) weak var' (for Swift 6.0 Sendable compatibility).
 //    - Remove explicit 'Escapable' protocol conformance.
 //    - Remove 'public' from 'extension expo.CppError' members (C++ types do not support library evolution).
 //    - Convert typed throws 'throws(...)' to standard 'throws' (Swift 6.0 parser compatibility).
+//    - Remove 'consuming:' label from vector.push_back (Swift 6.0 C++ stdlib interop).
 //    - Strip any trailing commas before ')', ']', '}' (Swift 6.0 syntax compatibility).
 //    - Patch JavaScriptActor.swift with clean withoutActuallyEscaping.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -229,12 +231,15 @@ func resolveTestFrameworks() -> (binaryTargets: [Target], dependencies: [Target.
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 4. Patch expo-modules-jsi RuntimeScheduler.h for Swift 6.0 C++ interop
+// 4. Patch expo-modules-jsi C++ Headers
 // ─────────────────────────────────────────────────────────────────────────────
-const runtimeSchedulerPath = path.join(
+const cxxIncludeDir = path.join(
   __dirname, '..', 'node_modules', 'expo-modules-jsi', 'apple',
-  'Sources', 'ExpoModulesJSI-Cxx', 'include', 'RuntimeScheduler.h'
+  'Sources', 'ExpoModulesJSI-Cxx', 'include'
 );
+
+// 4a. RuntimeScheduler.h
+const runtimeSchedulerPath = path.join(cxxIncludeDir, 'RuntimeScheduler.h');
 if (fs.existsSync(runtimeSchedulerPath)) {
   let headerContent = fs.readFileSync(runtimeSchedulerPath, 'utf8');
   if (!headerContent.includes('#ifndef SWIFT_RETURNS_RETAINED')) {
@@ -247,8 +252,33 @@ if (fs.existsSync(runtimeSchedulerPath)) {
   } else {
     console.log('✔  RuntimeScheduler.h already has SWIFT_RETURNS_RETAINED fallback');
   }
-} else {
-  console.log('⚠️  RuntimeScheduler.h not found');
+}
+
+// 4b. RetainedSwiftPointer.h
+const retainedPointerPath = path.join(cxxIncludeDir, 'RetainedSwiftPointer.h');
+if (fs.existsSync(retainedPointerPath)) {
+  let content = fs.readFileSync(retainedPointerPath, 'utf8');
+  content = content
+    .replace('using Deallocator = void(Context);', 'using Deallocator = void (*)(Context);')
+    .replace('explicit RetainedSwiftPointer', 'RetainedSwiftPointer')
+    .replace('Deallocator *_Nonnull _deallocator;', 'Deallocator _deallocator;');
+  fs.writeFileSync(retainedPointerPath, content, 'utf8');
+  console.log('✅ Patched RetainedSwiftPointer.h function pointer type');
+}
+
+// 4c. HostFunctionClosure.h
+const hostClosurePath = path.join(cxxIncludeDir, 'HostFunctionClosure.h');
+if (fs.existsSync(hostClosurePath)) {
+  let content = fs.readFileSync(hostClosurePath, 'utf8');
+  content = content
+    .replace(
+      'using Closure = facebook::jsi::Value(Context context, const facebook::jsi::Value *_Nonnull thisValue, const facebook::jsi::Value *_Nonnull args, size_t count);',
+      'using Closure = facebook::jsi::Value (*)(Context context, const facebook::jsi::Value *_Nonnull thisValue, const facebook::jsi::Value *_Nonnull args, size_t count);'
+    )
+    .replace('explicit HostFunctionClosure', 'HostFunctionClosure')
+    .replace('Closure *_Nonnull _closure;', 'Closure _closure;');
+  fs.writeFileSync(hostClosurePath, content, 'utf8');
+  console.log('✅ Patched HostFunctionClosure.h function pointer type');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -289,6 +319,12 @@ function patchSwiftFilesRecursively(dir) {
       // Convert typed throws 'throws(...)' -> 'throws' for Swift 6.0 parser compatibility
       if (content.includes('throws(')) {
         content = content.replace(/\bthrows\s*\([^)]+\)/g, 'throws');
+        changed = true;
+      }
+
+      // Remove 'consuming:' label from push_back (Swift 6.0 C++ interop compatibility)
+      if (content.includes('push_back(consuming:')) {
+        content = content.replace(/\.push_back\(consuming:\s*/g, '.push_back(');
         changed = true;
       }
 
@@ -405,7 +441,7 @@ internal final class JavaScriptRuntimeExecutor: JavaScriptExecutor, @unchecked S
 
 if (fs.existsSync(jsiSourcesDir)) {
   patchSwiftFilesRecursively(jsiSourcesDir);
-  console.log('✅ Patched expo-modules-jsi Swift files (nonisolated weak var, Escapable, CppError, JavaScriptActor, typed throws)');
+  console.log('✅ Patched expo-modules-jsi Swift files (nonisolated weak var, Escapable, CppError, JavaScriptActor, typed throws, consuming: label)');
 } else {
   console.log('⚠️  expo-modules-jsi Sources dir not found');
 }
