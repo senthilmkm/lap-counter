@@ -169,6 +169,29 @@ if (fs.existsSync(taskManagerModuleSwift)) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 1e. Patch expo-notifications (DateComponentsSerializer & PermissionsModule)
+// ─────────────────────────────────────────────────────────────────────────────
+const notifDateCompSwift = path.join(__dirname, '..', 'node_modules', 'expo-notifications', 'ios', 'ExpoNotifications', 'Notifications', 'DateComponentsSerializer.swift');
+if (fs.existsSync(notifDateCompSwift)) {
+  let content = fs.readFileSync(notifDateCompSwift, 'utf8');
+  if (content.includes('if #available(iOS 26.0, *)')) {
+    content = content.replace(/if #available\(iOS 26\.0, \*\) \{[\s\S]*?\}\s*\n/, '');
+    fs.writeFileSync(notifDateCompSwift, content, 'utf8');
+    console.log('✅ Patched DateComponentsSerializer.swift in expo-notifications');
+  }
+}
+
+const notifPermModuleSwift = path.join(__dirname, '..', 'node_modules', 'expo-notifications', 'ios', 'ExpoNotifications', 'Permissions', 'PermissionsModule.swift');
+if (fs.existsSync(notifPermModuleSwift)) {
+  let content = fs.readFileSync(notifPermModuleSwift, 'utf8');
+  if (content.includes('EXPermissionsService.parsePermission(fromRequester: permission)')) {
+    content = content.replace('EXPermissionsService.parsePermission(fromRequester: permission)', 'permission');
+    fs.writeFileSync(notifPermModuleSwift, content, 'utf8');
+    console.log('✅ Patched PermissionsModule.swift in expo-notifications');
+  }
+}
+
 const coreIosDir = path.join(__dirname, '..', 'node_modules', 'expo-modules-core', 'ios');
 if (fs.existsSync(coreIosDir)) {
   function patchCoreSwiftFiles(dir) {
