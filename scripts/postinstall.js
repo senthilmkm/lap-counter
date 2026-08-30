@@ -220,10 +220,23 @@ if (fs.existsSync(coreIosDir)) {
           }
         }
 
+        // Fix DynamicSwiftUIViewType performSynchronouslyOnMainThread in DynamicSwiftUIViewType.swift
+        if (entry.name === 'DynamicSwiftUIViewType.swift') {
+          if (content.includes('return try performSynchronouslyOnMainActor {')) {
+            content = content.replace('return try performSynchronouslyOnMainActor {', 'return try performSynchronouslyOnMainThread {');
+            changed = true;
+          }
+        }
+
         // Fix Utilities performSynchronouslyOnMainActor Sendable constraint in Utilities.swift
         if (entry.name === 'Utilities.swift') {
-          const newFn = `internal func performSynchronouslyOnMainActor<Result>(_ closure: () throws -> Result) rethrows -> Result {
-  return try performSynchronouslyOnMainThread(closure)
+          const newFn = `internal func performSynchronouslyOnMainActor<Result: Sendable>(_ closure: @MainActor () throws -> Result) rethrows -> Result {
+  if Thread.isMainThread {
+    return try MainActor.assumeIsolated(closure)
+  }
+  return try DispatchQueue.main.sync {
+    return try MainActor.assumeIsolated(closure)
+  }
 }`;
           if (content.includes('func performSynchronouslyOnMainActor')) {
             content = content.replace(/internal func performSynchronouslyOnMainActor[\s\S]*?\n\}/m, newFn);
