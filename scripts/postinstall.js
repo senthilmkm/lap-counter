@@ -115,6 +115,22 @@ if (fs.existsSync(coreIosDir)) {
           changed = true;
         }
 
+        // Fix Record.swift protocol requirement duplicate modifier
+        if (entry.name === 'Record.swift') {
+          if (content.includes('nonisolated init()')) {
+            content = content.replace('nonisolated init()', 'init()');
+            changed = true;
+          }
+        }
+
+        // Fix Utilities.swift nonisolated public modifier order
+        if (entry.name === 'Utilities.swift') {
+          if (content.includes('nonisolated public func currentViewController()')) {
+            content = content.replace('nonisolated public func currentViewController()', 'public func currentViewController()');
+            changed = true;
+          }
+        }
+
         // Fix ViewProps nonisolated init() in SwiftUIViewProps.swift
         if (entry.name === 'SwiftUIViewProps.swift') {
           if (content.includes('public required init() {}')) {
