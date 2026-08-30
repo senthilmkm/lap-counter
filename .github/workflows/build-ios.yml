@@ -60,7 +60,11 @@ jobs:
       - name: 🔍 Dump Detailed Xcode Build Logs on Failure
         if: failure()
         run: |
-          echo "=== Searching for Xcode build logs ==="
-          find ~/Library/Logs -name "*.log" 2>/dev/null -exec echo "=== Log: {} ===" \; -exec tail -n 100 {} \; || true
-          find /Users/runner/Library/Logs -name "*.log" 2>/dev/null -exec echo "=== Log: {} ===" \; -exec tail -n 100 {} \; || true
-          find /var/folders -name "*build*.log" 2>/dev/null -exec echo "=== Log: {} ===" \; -exec tail -n 100 {} \; || true
+          echo "=== Searching for Xcode build errors ==="
+          grep -rn "error: " /var/folders 2>/dev/null | head -n 100 || true
+          grep -rn "__construct_at" /var/folders 2>/dev/null | head -n 100 || true
+          find /var/folders -name "*build*.log" -o -name "fastlane.log" -o -name "xcodebuild*.log" 2>/dev/null | while read logfile; do
+            echo "=== Logfile: $logfile ==="
+            grep -C 10 "error:" "$logfile" | head -n 50 || true
+            grep -C 10 "__construct_at" "$logfile" | head -n 50 || true
+          done
