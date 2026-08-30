@@ -794,6 +794,14 @@ extension Task where Failure == any Error {
           changed = true;
         }
 
+        if (content.includes('wholeMatch(of: /^[a-zA-Z_$][a-zA-Z0-9_$]*$/)')) {
+          content = content.replace(
+            /if\s+name\.wholeMatch\(of:\s*\/[^\/]+\/\)\s*==\s*nil\s*\{/,
+            'if name.range(of: "^[a-zA-Z_$][a-zA-Z0-9_$]*$", options: .regularExpression) == nil {'
+          );
+          changed = true;
+        }
+
         // Direct forwarding for C++ trampolines returning facebook.jsi.Value
         content = content.replace(
           /return\s+JavaScriptActor\.assumeIsolated\s*\{\s*return\s+forwardingSwiftErrorsToJS\(runtime:\s*runtime\)\s*\{\s*return\s+try\s+context\.get\(propertyName\)\.asJSIValue\(\)\s*\}\s*\}/g,
@@ -828,6 +836,16 @@ extension Task where Failure == any Error {
     }`
         );
         changed = true;
+      }
+
+      if (entry.name === 'JavaScriptPromise.swift') {
+        if (content.includes('@JavaScriptActor\n  private final class LongLivedState')) {
+          content = content.replace(
+            '@JavaScriptActor\n  private final class LongLivedState',
+            'private final class LongLivedState'
+          );
+          changed = true;
+        }
       }
 
       // Fix ErrorHandling.swift non-copyable type handling and @JavaScriptActor forwarding
