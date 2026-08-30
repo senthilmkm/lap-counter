@@ -781,6 +781,65 @@ extension Task where Failure == any Error {
           );
           changed = true;
         }
+
+        if (content.includes('let jsiValue = try capturingCppErrors {')) {
+          content = content.replace(
+            /let\s+jsiValue\s*=\s*try\s+capturingCppErrors\s*\{[\s\S]*?return\s+expo\.evaluateJavaScript\([^\)]+\)\s*\}/,
+            `let jsiValue = expo.evaluateJavaScript(pointee, stringBuffer, std.string(label ?? "<<evaluated>>"))
+      try checkCppError()`
+          );
+          changed = true;
+        }
+      }
+
+      // Fix ErrorHandling.swift non-copyable type handling
+      if (entry.name === 'ErrorHandling.swift') {
+        if (content.includes('internal func capturingCppErrors<R: ~Copyable>')) {
+          content = content.replace(
+            /internal\s+func\s+capturingCppErrors<R:\s*~Copyable>[\s\S]*?return\s+result\s*\}/,
+            `internal func checkCppError() throws {
+  if let cppError = getCurrentCppError() {
+    throw cppError
+  }
+}
+
+internal func capturingCppErrors<R>(_ block: () throws -> R) throws -> R {
+  let result: R = try block()
+  try checkCppError()
+  return result
+}`
+          );
+          changed = true;
+        }
+      }
+
+      // Fix JavaScriptFunction.swift non-copyable type return from capturingCppErrors
+      if (entry.name === 'JavaScriptFunction.swift') {
+        if (content.includes('return try capturingCppErrors {')) {
+          content = content
+            .replace(
+              /return\s+try\s+capturingCppErrors\s*\{\s*return\s+JavaScriptValue\(\s*runtime,\s*expo\.callFunctionWithThis\([^\)]+\)\s*\)\s*\}/,
+              `let jsiResult = expo.callFunctionWithThis(runtime.pointee, pointee, this.pointee, arguments?.baseAddress, arguments?.count ?? 0)
+    let result = JavaScriptValue(runtime, jsiResult)
+    try checkCppError()
+    return result`
+            )
+            .replace(
+              /return\s+try\s+capturingCppErrors\s*\{\s*return\s+JavaScriptValue\(\s*runtime,\s*expo\.callFunction\([^\)]+\)\s*\)\s*\}/,
+              `let jsiResult = expo.callFunction(runtime.pointee, pointee, arguments?.baseAddress, arguments?.count ?? 0)
+    let result = JavaScriptValue(runtime, jsiResult)
+    try checkCppError()
+    return result`
+            )
+            .replace(
+              /return\s+try\s+capturingCppErrors\s*\{\s*let\s+jsiResult\s*=\s*expo\.callAsConstructor\([^\)]+\)\s*return\s+JavaScriptValue\(runtime,\s*jsiResult\)\s*\}/,
+              `let jsiResult = expo.callAsConstructor(runtime.pointee, pointee, arguments?.baseAddress, arguments?.count ?? 0)
+    let result = JavaScriptValue(runtime, jsiResult)
+    try checkCppError()
+    return result`
+            );
+          changed = true;
+        }
       }
 
       // Fix JavaScriptActor.swift for Swift 6.0
