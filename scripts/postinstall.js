@@ -278,50 +278,10 @@ if (fs.existsSync(coreIosDir)) {
           }
         }
 
-        // Fix DynamicSwiftUIViewType performSynchronouslyOnMainThread in DynamicSwiftUIViewType.swift
+        // Fix DynamicSwiftUIViewType in DynamicSwiftUIViewType.swift
         if (entry.name === 'DynamicSwiftUIViewType.swift') {
-          const oldCastBody = `    return try performSynchronouslyOnMainActor {
-      if let view = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.SwiftUIVirtualView<ViewType.Props, ViewType>.self) {
-        return view.contentView
-      }
-      if let view = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.SwiftUIVirtualViewDev<ViewType.Props, ViewType>.self) {
-        return view.contentView
-      }
-      // For wrapper types
-      // e.g. ExpoUIView(SecureFieldView.self)
-      if let provider = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.ViewWrapper.self),
-         let innerView = provider.getWrappedView() as? ViewType {
-        return innerView
-      }
-      // For views using WithHostingView protocol.
-      // e.g. View(HostView.self) where HostView conforms to WithHostingView
-      guard let view = appContext.findView(withTag: viewTag, ofType: AnyExpoSwiftUIHostingView.self) else {
-        throw Exceptions.SwiftUIViewNotFound((tag: viewTag, type: innerType.self))
-      }
-      return view.getContentView()
-    }`;
-          const oldCastBodyThread = `    return try performSynchronouslyOnMainThread {
-      if let view = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.SwiftUIVirtualView<ViewType.Props, ViewType>.self) {
-        return view.contentView
-      }
-      if let view = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.SwiftUIVirtualViewDev<ViewType.Props, ViewType>.self) {
-        return view.contentView
-      }
-      // For wrapper types
-      // e.g. ExpoUIView(SecureFieldView.self)
-      if let provider = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.ViewWrapper.self),
-         let innerView = provider.getWrappedView() as? ViewType {
-        return innerView
-      }
-      // For views using WithHostingView protocol.
-      // e.g. View(HostView.self) where HostView conforms to WithHostingView
-      guard let view = appContext.findView(withTag: viewTag, ofType: AnyExpoSwiftUIHostingView.self) else {
-        throw Exceptions.SwiftUIViewNotFound((tag: viewTag, type: innerType.self))
-      }
-      return view.getContentView()
-    }`;
-          const newCastBody = `    return try performSynchronouslyOnMainThreadThrowing {
-      typealias ResolveFn = @MainActor () throws -> Any
+          const newCastBody = `    let resolvedView = performSynchronouslyOnMainThread {
+      typealias ResolveFn = @MainActor () -> Any?
       let resolve: ResolveFn = {
         if let view = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.SwiftUIVirtualView<ViewType.Props, ViewType>.self) {
           return view.contentView
@@ -333,28 +293,32 @@ if (fs.existsSync(coreIosDir)) {
            let innerView = provider.getWrappedView() as? ViewType {
           return innerView
         }
-        guard let view = appContext.findView(withTag: viewTag, ofType: AnyExpoSwiftUIHostingView.self) else {
-          throw Exceptions.SwiftUIViewNotFound((tag: viewTag, type: self.innerType.self))
+        if let view = appContext.findView(withTag: viewTag, ofType: AnyExpoSwiftUIHostingView.self) {
+          return view.getContentView()
         }
-        return view.getContentView()
+        return nil
       }
-      typealias NonisolatedFn = () throws -> Any
+      typealias NonisolatedFn = () -> Any?
       let nonisolatedResolve = unsafeBitCast(resolve, to: NonisolatedFn.self)
-      return try nonisolatedResolve()
-    }`;
-          if (content.includes(oldCastBody)) {
-            content = content.replace(oldCastBody, newCastBody);
-            changed = true;
-          } else if (content.includes(oldCastBodyThread)) {
-            content = content.replace(oldCastBodyThread, newCastBody);
+      return nonisolatedResolve()
+    }
+    guard let result = resolvedView else {
+      throw Exceptions.SwiftUIViewNotFound((tag: viewTag, type: self.innerType.self))
+    }
+    return result`;
+          if (content.includes('return try performSynchronouslyOnMainActor {')) {
+            content = content.replace(/    return try performSynchronouslyOnMainActor \{[\s\S]*?    return view\.getContentView\(\)\n    \}/m, newCastBody);
             changed = true;
           } else if (content.includes('return try performSynchronouslyOnMainThread {')) {
-            content = content.replace('return try performSynchronouslyOnMainThread {', 'return try performSynchronouslyOnMainThreadThrowing {');
+            content = content.replace(/    return try performSynchronouslyOnMainThread \{[\s\S]*?    return view\.getContentView\(\)\n    \}/m, newCastBody);
+            changed = true;
+          } else if (content.includes('return try performSynchronouslyOnMainThreadThrowing {')) {
+            content = content.replace(/    return try performSynchronouslyOnMainThreadThrowing \{[\s\S]*?      return try nonisolatedResolve\(\)\n    \}/m, newCastBody);
             changed = true;
           }
         }
 
-        // Fix Utilities performSynchronouslyOnMainActor & performSynchronouslyOnMainThread in Utilities.swift
+        // Fix Utilities in Utilities.swift
         if (entry.name === 'Utilities.swift') {
           const newMainActorFn = `internal func performSynchronouslyOnMainActor<Result: Sendable>(_ closure: @MainActor () throws -> Result) rethrows -> Result {
   if Thread.isMainThread {
@@ -373,33 +337,13 @@ if (fs.existsSync(coreIosDir)) {
     box.value = closure()
   }
   return box.value!
-}
-
-internal func performSynchronouslyOnMainThreadThrowing<Result>(_ closure: () throws -> Result) throws -> Result {
-  if Thread.isMainThread {
-    return try closure()
-  }
-  let box = NonisolatedUnsafeVar<Swift.Result<Result, Error>?>(nil)
-  DispatchQueue.main.sync {
-    do {
-      box.value = .success(try closure())
-    } catch {
-      box.value = .failure(error)
-    }
-  }
-  switch box.value! {
-  case .success(let val):
-    return val
-  case .failure(let err):
-    throw err
-  }
 }`;
           if (content.includes('func performSynchronouslyOnMainActor')) {
             content = content.replace(/internal func performSynchronouslyOnMainActor[\s\S]*?\n\}/m, newMainActorFn);
             changed = true;
           }
           if (content.includes('func performSynchronouslyOnMainThread')) {
-            content = content.replace(/internal func performSynchronouslyOnMainThread[\s\S]*?\n\}/m, newMainThreadFn);
+            content = content.replace(/internal func performSynchronouslyOnMainThread[\s\S]*?(?=\/\*\*|\npublic struct Utilities)/m, newMainThreadFn + '\n\n');
             changed = true;
           }
         }
