@@ -182,6 +182,13 @@ if (fs.existsSync(coreIosDir)) {
             content = content.replace('extension UIView: @MainActor AnyArgument {', 'extension UIView: AnyArgument {');
             changed = true;
           }
+          if (content.includes('extension UIView: AnyArgument {\n  public static func getDynamicType()')) {
+            content = content.replace(
+              'extension UIView: AnyArgument {\n  public static func getDynamicType()',
+              'extension UIView: AnyArgument {\n  public nonisolated static func getDynamicType()'
+            );
+            changed = true;
+          }
         }
 
         // Fix AnyArgument.swift duplicate modifier
@@ -192,10 +199,13 @@ if (fs.existsSync(coreIosDir)) {
           }
         }
 
-        // Fix SwiftUIViewDefinition.swift duplicate modifier
+        // Fix SwiftUIViewDefinition.swift nonisolated getDynamicType
         if (entry.name === 'SwiftUIViewDefinition.swift') {
-          if (content.includes('public nonisolated static func getDynamicType()')) {
-            content = content.replace('public nonisolated static func getDynamicType()', 'public static func getDynamicType()');
+          if (content.includes('extension ExpoSwiftUIView {\n  public static func getDynamicType()')) {
+            content = content.replace('extension ExpoSwiftUIView {\n  public static func getDynamicType()', 'extension ExpoSwiftUIView {\n  public nonisolated static func getDynamicType()');
+            changed = true;
+          } else if (content.includes('  public static func getDynamicType() -> AnyDynamicType {') && !content.includes('public nonisolated static func getDynamicType()')) {
+            content = content.replace('  public static func getDynamicType() -> AnyDynamicType {', '  public nonisolated static func getDynamicType() -> AnyDynamicType {');
             changed = true;
           }
         }
@@ -351,7 +361,7 @@ if (fs.existsSync(coreIosDir)) {
     return try MainActor.assumeIsolated(closure)
   }
 }`;
-          const newMainThreadFn = `internal func performSynchronouslyOnMainThread<Result>(_ closure: () throws -> Result) rethrows -> Result {
+          const newMainThreadFn = `internal func performSynchronouslyOnMainThread<Result>(_ closure: () throws -> Result) throws -> Result {
   if Thread.isMainThread {
     return try closure()
   }
