@@ -1305,13 +1305,9 @@ if (fs.existsSync(buildXcframeworkScript)) {
     );
     changedScript = true;
   }
-  if (scriptContent.includes('BUILD_LIBRARY_FOR_DISTRIBUTION=YES')) {
-    scriptContent = scriptContent.replace('BUILD_LIBRARY_FOR_DISTRIBUTION=YES', 'BUILD_LIBRARY_FOR_DISTRIBUTION=NO');
-    changedScript = true;
-  }
   if (changedScript) {
     fs.writeFileSync(buildXcframeworkScript, scriptContent, 'utf8');
-    console.log('✅ Patched build-xcframework.sh (clean syntax, removed -quiet, BUILD_LIBRARY_FOR_DISTRIBUTION=NO, robust Swift.h copy)');
+    console.log('✅ Patched build-xcframework.sh (clean syntax, removed -quiet, robust Swift.h copy)');
   }
 }
 
