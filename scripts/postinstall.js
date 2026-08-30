@@ -455,12 +455,16 @@ private:
   Deallocator _deallocator;
 };
 
+inline void addPropNameId(HostObjectCallbacks::PropNameIds &vector, facebook::jsi::IRuntime &runtime, const char *name) {
+  vector.push_back(facebook::jsi::PropNameID::forUtf8(runtime, name));
+}
+
 } // namespace expo
 
 #endif // __cplusplus
 `;
   fs.writeFileSync(hostCallbacksPath, content, 'utf8');
-  console.log('✅ Patched HostObjectCallbacks.h');
+  console.log('✅ Patched HostObjectCallbacks.h with addPropNameId helper');
 }
 
 const hostObjectPath = path.join(cxxIncludeDir, 'HostObject.h');
@@ -737,6 +741,14 @@ extension Task where Failure == any Error {
           content = content.replace(
             /let\s+callbacks\s*=\s*expo\.HostObjectCallbacks\([\s\S]*?let\s+hostObject\s*=\s*expo\.HostObject\.makeObject\(pointee,\s*consume\s+callbacks\)/,
             'let hostObject = expo.makeHostObject(pointee, context, getter, set == nil ? nil : setterPointer, propertyNamesGetter, deallocate)'
+          );
+          changed = true;
+        }
+
+        if (content.includes('vector.push_back(') || content.includes('let propNameId = facebook.jsi.PropNameID.forUtf8(')) {
+          content = content.replace(
+            /for\s+propertyName\s+in\s+propertyNames\s*\{[\s\S]*?vector\.push_back\([^\)]+\)\s*\}/,
+            'for propertyName in propertyNames {\n        expo.addPropNameId(&vector, runtime.pointee, propertyName)\n      }'
           );
           changed = true;
         }
