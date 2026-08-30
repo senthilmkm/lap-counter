@@ -835,6 +835,62 @@ extension Task where Failure == any Error {
       return try context.call(thisValue, consume arguments).asJSIValue()
     }`
         );
+        if (content.includes('return try constructor(this, arguments)')) {
+          content = content.replace(
+            'return try constructor(this, arguments)',
+            'return try constructor(this, consume arguments)'
+          );
+          changed = true;
+        }
+        changed = true;
+      }
+
+      if (entry.name === 'JavaScriptObject.swift') {
+        if (content.includes('self.init(runtime, facebook.jsi.Object(runtime.pointee))')) {
+          content = content.replace(
+            'self.init(runtime, facebook.jsi.Object(runtime.pointee))',
+            'self.runtime = runtime\n    self.pointee = facebook.jsi.Object(runtime.pointee)'
+          );
+          changed = true;
+        }
+      }
+
+      if (entry.name === 'JavaScriptArray.swift') {
+        if (content.includes('self.init(runtime, facebook.jsi.Array(runtime.pointee, length))')) {
+          content = content.replace(
+            'self.init(runtime, facebook.jsi.Array(runtime.pointee, length))',
+            'self.runtime = runtime\n    self.pointee = facebook.jsi.Array(runtime.pointee, length)'
+          );
+          changed = true;
+        }
+        if (content.includes('self.init(runtime, items: items)')) {
+          content = content.replace(
+            'self.init(runtime, items: items)',
+            'self.runtime = runtime\n    self.pointee = facebook.jsi.Array(runtime.pointee, items.count)\n    for (index, item) in items.enumerated() {\n      self.setValue(item, at: index)\n    }'
+          );
+          changed = true;
+        }
+      }
+
+      if (entry.name === 'JavaScriptValuesBuffer.swift') {
+        content = content.replace(
+          /internal\s+init\(_\s*runtime:\s*JavaScriptRuntime,\s*start:\s*consuming\s*UnsafePointer<facebook\.jsi\.Value>\?,\s*count:\s*Int\)\s*\{[\s\S]*?ownsMemory:\s*false\)\s*\}/,
+          `internal init(_ runtime: JavaScriptRuntime, start: consuming UnsafePointer<facebook.jsi.Value>?, count: Int) {
+    self.runtime = runtime
+    self.iRuntime = runtime.pointee
+    self.bufferPointer = UnsafeMutableBufferPointer(start: UnsafeMutablePointer(mutating: start), count: count)
+    self.ownsMemory = false
+  }`
+        );
+        content = content.replace(
+          /internal\s+init\(_\s*runtime:\s*JavaScriptRuntime,\s*buffer:\s*consuming\s*UnsafeBufferPointer<facebook\.jsi\.Value>\)\s*\{[\s\S]*?ownsMemory:\s*false\)\s*\}/,
+          `internal init(_ runtime: JavaScriptRuntime, buffer: consuming UnsafeBufferPointer<facebook.jsi.Value>) {
+    self.runtime = runtime
+    self.iRuntime = runtime.pointee
+    self.bufferPointer = UnsafeMutableBufferPointer(mutating: buffer)
+    self.ownsMemory = false
+  }`
+        );
         changed = true;
       }
 
@@ -850,6 +906,12 @@ extension Task where Failure == any Error {
 
     func allowRelease() {`
         );
+        if (content.includes('try self.init(runtime, JavaScriptObject(runtime, object))')) {
+          content = content.replace(
+            'try self.init(runtime, JavaScriptObject(runtime, object))',
+            'self.runtime = runtime\n    longLivedState.object.reset(JavaScriptValue(runtime, object.asValue()))\n    try setUpCallbacks()\n    runtime.longLivedObjects.add(longLivedState)'
+          );
+        }
         changed = true;
       }
 
