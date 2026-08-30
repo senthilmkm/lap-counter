@@ -20,8 +20,8 @@ const path = require('path');
 //    experimental features, and trailing commas in argument lists that break Swift 6.0).
 //
 // 4. expo-modules-jsi C++ Headers:
-//    - RuntimeScheduler.h: Add #define SWIFT_RETURNS_RETAINED __attribute__((swift_attr("returns_retained"))).
-//    - RetainedSwiftPointer.h & HostFunctionClosure.h: Add createHostFunctionClosure C++ factory function.
+//    - RuntimeScheduler.h: Add createRuntimeScheduler factory functions.
+//    - RetainedSwiftPointer.h & HostFunctionClosure.h: Add createHostFunctionClosure factory.
 //
 // 5. expo-modules-jsi Swift sources:
 //    - Replace 'weak let' with 'nonisolated(unsafe) weak var' (for Swift 6.0 Sendable compatibility).
@@ -31,7 +31,7 @@ const path = require('path');
 //    - Remove 'consuming:' label from vector.push_back (Swift 6.0 C++ stdlib interop).
 //    - Strip any trailing commas before ')', ']', '}' (Swift 6.0 syntax compatibility).
 //    - Patch JavaScriptActor.swift with clean withoutActuallyEscaping.
-//    - Update createFunctionClosure to return UnsafeMutablePointer<expo.HostFunctionClosure>.
+//    - Update createFunctionClosure & RuntimeScheduler creation in JavaScriptRuntime.swift.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -249,14 +249,6 @@ if (fs.existsSync(runtimeSchedulerPath)) {
 #include <atomic>
 #include <swift/bridging>
 
-#ifndef SWIFT_RETURNS_RETAINED
-#if __has_attribute(swift_attr)
-#define SWIFT_RETURNS_RETAINED __attribute__((swift_attr("returns_retained")))
-#else
-#define SWIFT_RETURNS_RETAINED
-#endif
-#endif
-
 namespace expo {
 
 class RuntimeScheduler {
@@ -279,10 +271,10 @@ private:
   std::atomic<int> refCount{1};
 
 public:
-  SWIFT_RETURNS_RETAINED RuntimeScheduler(void *scheduler, ScheduleFn fn) noexcept
+  RuntimeScheduler(void *scheduler, ScheduleFn fn) noexcept
       : nativeScheduler(scheduler), scheduleFn(fn) {}
 
-  SWIFT_RETURNS_RETAINED RuntimeScheduler() {}
+  RuntimeScheduler() {}
 
   RuntimeScheduler(const RuntimeScheduler &) = delete;
 
@@ -309,6 +301,14 @@ public:
   }
 } SWIFT_SHARED_REFERENCE(retainRuntimeScheduler, releaseRuntimeScheduler);
 
+inline expo::RuntimeScheduler *createRuntimeScheduler() {
+  return new expo::RuntimeScheduler();
+}
+
+inline expo::RuntimeScheduler *createRuntimeScheduler(void *scheduler, expo::RuntimeScheduler::ScheduleFn fn) {
+  return new expo::RuntimeScheduler(scheduler, fn);
+}
+
 } // namespace expo
 
 inline void retainRuntimeScheduler(expo::RuntimeScheduler *scheduler) {
@@ -322,7 +322,7 @@ inline void releaseRuntimeScheduler(expo::RuntimeScheduler *scheduler) {
 #endif // __cplusplus
 `;
   fs.writeFileSync(runtimeSchedulerPath, content, 'utf8');
-  console.log('✅ Patched RuntimeScheduler.h with returns_retained attribute');
+  console.log('✅ Patched RuntimeScheduler.h with createRuntimeScheduler factory functions');
 }
 
 // 4b. RetainedSwiftPointer.h
@@ -458,7 +458,7 @@ function patchSwiftFilesRecursively(dir) {
         changed = true;
       }
 
-      // Fix JavaScriptRuntime.swift HostFunctionClosure creation
+      // Fix JavaScriptRuntime.swift HostFunctionClosure & RuntimeScheduler creation
       if (entry.name === 'JavaScriptRuntime.swift') {
         if (content.includes('return expo.HostFunctionClosure(context, call, deallocate)')) {
           content = content.replace(
@@ -468,6 +468,18 @@ function patchSwiftFilesRecursively(dir) {
           content = content.replace(
             /return\s+expo\.HostFunctionClosure\(context,\s*call,\s*deallocate\)/g,
             'return expo.createHostFunctionClosure(context, call, deallocate)'
+          );
+          changed = true;
+        }
+
+        if (content.includes('self.scheduler = expo.RuntimeScheduler(')) {
+          content = content.replace(
+            /self\.scheduler\s*=\s*expo\.RuntimeScheduler\(\)/g,
+            'self.scheduler = expo.createRuntimeScheduler()'
+          );
+          content = content.replace(
+            /self\.scheduler\s*=\s*expo\.RuntimeScheduler\((scheduler,\s*fn)\)/g,
+            'self.scheduler = expo.createRuntimeScheduler($1)'
           );
           changed = true;
         }
@@ -570,7 +582,7 @@ internal final class JavaScriptRuntimeExecutor: JavaScriptExecutor, @unchecked S
 
 if (fs.existsSync(jsiSourcesDir)) {
   patchSwiftFilesRecursively(jsiSourcesDir);
-  console.log('✅ Patched expo-modules-jsi Swift files (nonisolated weak var, Escapable, CppError, JavaScriptActor, typed throws, consuming: label, createHostFunctionClosure)');
+  console.log('✅ Patched expo-modules-jsi Swift files (nonisolated weak var, Escapable, CppError, JavaScriptActor, typed throws, consuming: label, createHostFunctionClosure, createRuntimeScheduler)');
 } else {
   console.log('⚠️  expo-modules-jsi Sources dir not found');
 }
