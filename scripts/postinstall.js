@@ -92,13 +92,13 @@ for (const podspecPath of podspecsToFix) {
 const exJsiUtilsH = path.join(__dirname, '..', 'node_modules', 'expo-modules-core', 'ios', 'JSI', 'EXJSIUtils.h');
 if (fs.existsSync(exJsiUtilsH)) {
   let content = fs.readFileSync(exJsiUtilsH, 'utf8');
-  if (!content.includes('<ReactCommon/CallInvoker.h>')) {
+  if (!content.includes('<react/bridging/CallbackWrapper.h>')) {
     content = content.replace(
       '#import <ReactCommon/TurboModuleUtils.h>',
-      '#import <ReactCommon/CallInvoker.h>\n#import <ReactCommon/TurboModuleUtils.h>'
+      '#import <ReactCommon/CallInvoker.h>\n#import <react/bridging/CallbackWrapper.h>\n#import <ReactCommon/TurboModuleUtils.h>'
     );
     fs.writeFileSync(exJsiUtilsH, content, 'utf8');
-    console.log('✅ Patched EXJSIUtils.h with #import <ReactCommon/CallInvoker.h>');
+    console.log('✅ Patched EXJSIUtils.h with #import <ReactCommon/CallInvoker.h> and <react/bridging/CallbackWrapper.h>');
   }
 }
 
