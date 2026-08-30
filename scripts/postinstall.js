@@ -869,7 +869,10 @@ internal func forwardingSwiftErrorsToJS(
   _ body: @JavaScriptActor () throws -> facebook.jsi.Value
 ) -> facebook.jsi.Value {
   do {
-    return try JavaScriptActor.assumeIsolated(body)
+    JavaScriptActor.checkIsolated()
+    typealias RawFn = () throws -> facebook.jsi.Value
+    let fn = unsafeBitCast(body, to: RawFn.self)
+    return try fn()
   } catch let jsError as JavaScriptError {
     // Relay the wrapped \`jsi::JSError\` directly so the thrown value reaches JS as-is, which may be
     // an arbitrary value rather than an \`Error\` instance.
@@ -894,7 +897,10 @@ internal func forwardingSwiftErrorsToJS(
   _ body: @JavaScriptActor () throws -> Void
 ) {
   do {
-    try JavaScriptActor.assumeIsolated(body)
+    JavaScriptActor.checkIsolated()
+    typealias RawFn = () throws -> Void
+    let fn = unsafeBitCast(body, to: RawFn.self)
+    try fn()
   } catch let jsError as JavaScriptError {
     // Relay the wrapped \`jsi::JSError\` directly so the thrown value reaches JS as-is, which may be
     // an arbitrary value rather than an \`Error\` instance.
