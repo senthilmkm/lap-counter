@@ -187,13 +187,25 @@ if (fs.existsSync(coreIosDir)) {
           }
         }
 
+        // Fix SharedObjectRegistry Sendable in SharedObjectRegistry.swift
+        if (entry.name === 'SharedObjectRegistry.swift') {
+          if (content.includes('public final class SharedObjectRegistry: Sendable {')) {
+            content = content.replace('public final class SharedObjectRegistry: Sendable {', 'public final class SharedObjectRegistry: @unchecked Sendable {');
+            changed = true;
+          }
+        }
+
         // Fix UIViewFrameObserver observation in SwiftUIViewFrameObserver.swift
         if (entry.name === 'SwiftUIViewFrameObserver.swift') {
-          if (content.includes('observer = view.observe(\\.bounds, options: [.old, .new]) { view, change in')) {
+          if (content.includes('callback(CGRect(origin: view.frame.origin, size: newValue.size))') && !content.includes('MainActor.assumeIsolated')) {
             content = content.replace(
-              'observer = view.observe(\\.bounds, options: [.old, .new]) { view, change in',
-              'observer = view.observe(\\.bounds, options: [.old, .new]) { @MainActor view, change in'
+              'callback(CGRect(origin: view.frame.origin, size: newValue.size))',
+              'MainActor.assumeIsolated {\n          callback(CGRect(origin: view.frame.origin, size: newValue.size))\n        }'
             );
+            changed = true;
+          }
+          if (content.includes('@MainActor view, change in')) {
+            content = content.replace('@MainActor view, change in', 'view, change in');
             changed = true;
           }
         }
