@@ -185,7 +185,19 @@ if (fs.existsSync(coreIosDir)) {
           if (content.includes('extension UIView: AnyArgument {\n  public static func getDynamicType()')) {
             content = content.replace(
               'extension UIView: AnyArgument {\n  public static func getDynamicType()',
-              'extension UIView: AnyArgument {\n  nonisolated public static func getDynamicType()'
+              'extension UIView: AnyArgument {\n  nonisolated static func getDynamicType()'
+            );
+            changed = true;
+          } else if (content.includes('extension UIView: AnyArgument {\n  nonisolated public static func getDynamicType()')) {
+            content = content.replace(
+              'extension UIView: AnyArgument {\n  nonisolated public static func getDynamicType()',
+              'extension UIView: AnyArgument {\n  nonisolated static func getDynamicType()'
+            );
+            changed = true;
+          } else if (content.includes('extension UIView: AnyArgument {\n  public nonisolated static func getDynamicType()')) {
+            content = content.replace(
+              'extension UIView: AnyArgument {\n  public nonisolated static func getDynamicType()',
+              'extension UIView: AnyArgument {\n  nonisolated static func getDynamicType()'
             );
             changed = true;
           }
@@ -338,10 +350,24 @@ if (fs.existsSync(coreIosDir)) {
           }
         }
 
-        // Fix AnyExpoSwiftUIHostingView in SwiftUIHostingView.swift to be @MainActor
+        // Fix AnyExpoSwiftUIHostingView in SwiftUIHostingView.swift methods to be @MainActor
         if (entry.name === 'SwiftUIHostingView.swift') {
-          if (content.includes('internal protocol AnyExpoSwiftUIHostingView {') && !content.includes('@MainActor\ninternal protocol AnyExpoSwiftUIHostingView')) {
-            content = content.replace('internal protocol AnyExpoSwiftUIHostingView {', '@MainActor\ninternal protocol AnyExpoSwiftUIHostingView {');
+          if (content.includes('@MainActor\ninternal protocol AnyExpoSwiftUIHostingView {')) {
+            content = content.replace('@MainActor\ninternal protocol AnyExpoSwiftUIHostingView {', 'internal protocol AnyExpoSwiftUIHostingView {');
+            changed = true;
+          }
+          const oldProto = `internal protocol AnyExpoSwiftUIHostingView {
+  func updateProps(_ rawProps: [String: Any])
+  func getContentView() -> any ExpoSwiftUI.View
+  func getProps() -> ExpoSwiftUI.ViewProps
+}`;
+          const newProto = `internal protocol AnyExpoSwiftUIHostingView {
+  @MainActor func updateProps(_ rawProps: [String: Any])
+  @MainActor func getContentView() -> any ExpoSwiftUI.View
+  @MainActor func getProps() -> ExpoSwiftUI.ViewProps
+}`;
+          if (content.includes(oldProto)) {
+            content = content.replace(oldProto, newProto);
             changed = true;
           }
         }
