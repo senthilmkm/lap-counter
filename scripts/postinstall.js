@@ -153,8 +153,61 @@ if (fs.existsSync(coreIosDir)) {
 
         // Fix Utilities performSynchronouslyOnMainActor Sendable constraint in Utilities.swift
         if (entry.name === 'Utilities.swift') {
-          if (content.includes('func performSynchronouslyOnMainActor<Result: Sendable>')) {
+          const oldFn = `internal func performSynchronouslyOnMainActor<Result: Sendable>(_ closure: @MainActor () throws -> Result) rethrows -> Result {
+  if Thread.isMainThread {
+    return try MainActor.assumeIsolated(closure)
+  }
+  return try DispatchQueue.main.sync(execute: closure)
+}`;
+          const newFn = `internal func performSynchronouslyOnMainActor<Result>(_ closure: @MainActor () throws -> Result) rethrows -> Result {
+  typealias NonisolatedClosure = () throws -> Result
+  let nonisolatedClosure = unsafeBitCast(closure, to: NonisolatedClosure.self)
+  if Thread.isMainThread {
+    return try nonisolatedClosure()
+  }
+  return try DispatchQueue.main.sync(execute: nonisolatedClosure)
+}`;
+          if (content.includes(oldFn)) {
+            content = content.replace(oldFn, newFn);
+            changed = true;
+          } else if (content.includes('func performSynchronouslyOnMainActor<Result: Sendable>')) {
             content = content.replace('func performSynchronouslyOnMainActor<Result: Sendable>', 'func performSynchronouslyOnMainActor<Result>');
+            changed = true;
+          }
+        }
+
+        // Fix URLAuthenticationChallengeForwardSender Sendable in URLAuthenticationChallengeForwardSender.swift
+        if (entry.name === 'URLAuthenticationChallengeForwardSender.swift') {
+          if (content.includes('internal final class URLAuthenticationChallengeForwardSender: NSObject, URLAuthenticationChallengeSender {')) {
+            content = content.replace(
+              'internal final class URLAuthenticationChallengeForwardSender: NSObject, URLAuthenticationChallengeSender {',
+              'internal final class URLAuthenticationChallengeForwardSender: NSObject, URLAuthenticationChallengeSender, @unchecked Sendable {'
+            );
+            changed = true;
+          }
+          if (content.includes('let completionHandler: (URLSession.AuthChallengeDisposition, URLCredential?) -> Void')) {
+            content = content.replace(
+              'let completionHandler: (URLSession.AuthChallengeDisposition, URLCredential?) -> Void',
+              'let completionHandler: @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void'
+            );
+            changed = true;
+          }
+          if (content.includes('init(completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void)')) {
+            content = content.replace(
+              'init(completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void)',
+              'init(completionHandler: @Sendable @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void)'
+            );
+            changed = true;
+          }
+        }
+
+        // Fix URLSessionSessionDelegateProxy Sendable in URLSessionSessionDelegateProxy.swift
+        if (entry.name === 'URLSessionSessionDelegateProxy.swift') {
+          if (content.includes('public final class URLSessionSessionDelegateProxy: NSObject, URLSessionDataDelegate {')) {
+            content = content.replace(
+              'public final class URLSessionSessionDelegateProxy: NSObject, URLSessionDataDelegate {',
+              'public final class URLSessionSessionDelegateProxy: NSObject, URLSessionDataDelegate, @unchecked Sendable {'
+            );
             changed = true;
           }
         }
