@@ -538,11 +538,12 @@ inline facebook::jsi::Object makeHostObject(
   console.log('✅ Patched HostObject.h with makeHostObject factory function (IRuntime & new HostObject)');
 }
 
-// 4e. JSIUtils.h (fix std::make_shared<MemoryBuffer> which triggers __construct_at)
+// 4e. JSIUtils.h (fix all std::make_shared calls which trigger __construct_at in Xcode 16 / C++20)
 const jsiUtilsPath = path.join(cxxIncludeDir, 'JSIUtils.h');
 if (fs.existsSync(jsiUtilsPath)) {
   let content = fs.readFileSync(jsiUtilsPath, 'utf8');
   let changed = false;
+
   if (content.includes('std::make_shared<MemoryBuffer>')) {
     content = content
       .replace(
@@ -555,9 +556,26 @@ if (fs.existsSync(jsiUtilsPath)) {
       );
     changed = true;
   }
+
+  if (content.includes('std::make_shared<expo::NativeState>')) {
+    content = content.replace(
+      'std::make_shared<expo::NativeState>(context, deallocator)',
+      'std::shared_ptr<expo::NativeState>(new expo::NativeState(context, deallocator))'
+    );
+    changed = true;
+  }
+
+  if (content.includes('std::make_shared<jsi::StringBuffer>')) {
+    content = content.replace(
+      'std::make_shared<jsi::StringBuffer>(source)',
+      'std::shared_ptr<jsi::StringBuffer>(new jsi::StringBuffer(source))'
+    );
+    changed = true;
+  }
+
   if (changed) {
     fs.writeFileSync(jsiUtilsPath, content, 'utf8');
-    console.log('✅ Patched JSIUtils.h with std::shared_ptr<MemoryBuffer>(new MemoryBuffer(...))');
+    console.log('✅ Patched JSIUtils.h to replace all std::make_shared with std::shared_ptr(new ...)');
   } else {
     console.log('✔  JSIUtils.h already up-to-date');
   }
