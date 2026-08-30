@@ -176,95 +176,24 @@ if (fs.existsSync(coreIosDir)) {
           }
         }
 
-        // Fix ViewDefinition extension in ViewDefinition.swift
-        if (entry.name === 'ViewDefinition.swift') {
-          if (content.includes('extension UIView: @MainActor AnyArgument {')) {
-            content = content.replace('extension UIView: @MainActor AnyArgument {', 'extension UIView: AnyArgument {');
-            changed = true;
-          }
-          if (content.includes('extension UIView: AnyArgument {\n  public static func getDynamicType()')) {
-            content = content.replace(/extension UIView: AnyArgument \{[\s\S]*?\n\}/m, 'extension UIView: AnyArgument {\n  public static func getDynamicType() -> AnyDynamicType {\n    return DynamicViewType(innerType: Self.self)\n  }\n}');
-            changed = true;
-          } else if (content.includes('extension UIView: AnyArgument {\n  nonisolated')) {
-            content = content.replace(/extension UIView: AnyArgument \{[\s\S]*?\n\}/m, 'extension UIView: AnyArgument {\n  public static func getDynamicType() -> AnyDynamicType {\n    return DynamicViewType(innerType: Self.self)\n  }\n}');
-            changed = true;
-          }
-        }
-
-        // Fix AnyArgument.swift duplicate modifier
-        if (entry.name === 'AnyArgument.swift') {
-          if (content.includes('nonisolated static func getDynamicType()')) {
-            content = content.replace('nonisolated static func getDynamicType()', 'static func getDynamicType()');
-            changed = true;
-          }
-        }
-
-        // Fix SwiftUIViewDefinition.swift: ExpoSwiftUIView is a protocol and not @MainActor, so getDynamicType must be clean public static func without duplicate nonisolated
-        if (entry.name === 'SwiftUIViewDefinition.swift') {
-          if (content.includes('extension ExpoSwiftUIView {\n  nonisolated public static func getDynamicType()')) {
-            content = content.replace('extension ExpoSwiftUIView {\n  nonisolated public static func getDynamicType()', 'extension ExpoSwiftUIView {\n  public static func getDynamicType()');
-            changed = true;
-          } else if (content.includes('extension ExpoSwiftUIView {\n  public nonisolated static func getDynamicType()')) {
-            content = content.replace('extension ExpoSwiftUIView {\n  public nonisolated static func getDynamicType()', 'extension ExpoSwiftUIView {\n  public static func getDynamicType()');
-            changed = true;
-          } else if (content.includes('extension ExpoSwiftUIView {\n  nonisolated static func getDynamicType()')) {
-            content = content.replace('extension ExpoSwiftUIView {\n  nonisolated static func getDynamicType()', 'extension ExpoSwiftUIView {\n  public static func getDynamicType()');
-            changed = true;
-          } else if (content.includes('  nonisolated public static func getDynamicType() -> AnyDynamicType {')) {
-            content = content.replace('  nonisolated public static func getDynamicType() -> AnyDynamicType {', '  public static func getDynamicType() -> AnyDynamicType {');
-            changed = true;
-          } else if (content.includes('  public nonisolated static func getDynamicType() -> AnyDynamicType {')) {
-            content = content.replace('  public nonisolated static func getDynamicType() -> AnyDynamicType {', '  public static func getDynamicType() -> AnyDynamicType {');
-            changed = true;
-          }
-        }
-
-        // Fix ExpoSwiftUI in ExpoSwiftUI.swift
-        if (entry.name === 'ExpoSwiftUI.swift') {
-          if (!content.includes('import _Concurrency')) {
-            content = "import _Concurrency\n" + content;
-            changed = true;
-          }
-          if (content.includes('@MainActor\n  public protocol ViewWrapper {')) {
-            content = content.replace('@MainActor\n  public protocol ViewWrapper {', '  public protocol ViewWrapper {');
-            changed = true;
-          }
-          if (content.includes('public protocol ViewWrapper {') && !content.includes('@MainActor\n    func getWrappedView()')) {
-            content = content.replace('func getWrappedView() -> Any', '@MainActor\n    func getWrappedView() -> Any');
-            changed = true;
-          }
-        }
-
-        // Fix SystemMenuTouchGate import _Concurrency in SystemMenuTouchGate.swift
-        if (entry.name === 'SystemMenuTouchGate.swift') {
-          if (!content.includes('import _Concurrency')) {
-            content = "import _Concurrency\n" + content;
-            changed = true;
-          }
-        }
-
         // Fix DynamicSwiftUIViewType in DynamicSwiftUIViewType.swift
         if (entry.name === 'DynamicSwiftUIViewType.swift') {
-          const newCastBody = `    let resolvedView = performSynchronouslyOnMainActor { () -> Any? in
+          const newCastBody = `    return try performSynchronouslyOnMainThreadThrowing {
       if let view = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.SwiftUIVirtualView<ViewType.Props, ViewType>.self) {
-        return view.contentView
+        return MainActor.assumeIsolated { view.contentView }
       }
       if let view = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.SwiftUIVirtualViewDev<ViewType.Props, ViewType>.self) {
-        return view.contentView
+        return MainActor.assumeIsolated { view.contentView }
       }
       if let provider = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.ViewWrapper.self),
-         let innerView = provider.getWrappedView() as? ViewType {
+         let innerView = MainActor.assumeIsolated({ provider.getWrappedView() }) as? ViewType {
         return innerView
       }
-      if let view = appContext.findView(withTag: viewTag, ofType: AnyExpoSwiftUIHostingView.self) {
-        return view.getContentView()
+      guard let view = appContext.findView(withTag: viewTag, ofType: AnyExpoSwiftUIHostingView.self) else {
+        throw Exceptions.SwiftUIViewNotFound((tag: viewTag, type: self.innerType.self))
       }
-      return nil
-    }
-    guard let result = resolvedView else {
-      throw Exceptions.SwiftUIViewNotFound((tag: viewTag, type: self.innerType.self))
-    }
-    return result`;
+      return MainActor.assumeIsolated { view.getContentView() }
+    }`;
           if (content.includes('return try performSynchronouslyOnMainActor {')) {
             content = content.replace(/    return try performSynchronouslyOnMainActor \{[\s\S]*?    return view\.getContentView\(\)\n    \}/m, newCastBody);
             changed = true;
@@ -274,6 +203,9 @@ if (fs.existsSync(coreIosDir)) {
           } else if (content.includes('return try performSynchronouslyOnMainThreadThrowing {')) {
             content = content.replace(/    return try performSynchronouslyOnMainThreadThrowing \{[\s\S]*?      return try nonisolatedResolve\(\)\n    \}/m, newCastBody);
             changed = true;
+          } else if (content.includes('let resolvedView = performSynchronouslyOnMainActor {')) {
+            content = content.replace(/    let resolvedView = performSynchronouslyOnMainActor \{[\s\S]*?    return result/m, newCastBody);
+            changed = true;
           } else if (content.includes('let resolvedView = performSynchronouslyOnMainThread {')) {
             content = content.replace(/    let resolvedView = performSynchronouslyOnMainThread \{[\s\S]*?    return result/m, newCastBody);
             changed = true;
@@ -282,16 +214,6 @@ if (fs.existsSync(coreIosDir)) {
 
         // Fix Utilities in Utilities.swift
         if (entry.name === 'Utilities.swift') {
-          const newMainActorFn = `internal func performSynchronouslyOnMainActor<Result>(_ closure: @MainActor () -> Result) -> Result {
-  if Thread.isMainThread {
-    return MainActor.assumeIsolated(closure)
-  }
-  let box = NonisolatedUnsafeVar<Result?>(nil)
-  DispatchQueue.main.sync {
-    box.value = MainActor.assumeIsolated(closure)
-  }
-  return box.value!
-}`;
           const newMainThreadFn = `internal func performSynchronouslyOnMainThread<Result>(_ closure: () -> Result) -> Result {
   if Thread.isMainThread {
     return closure()
@@ -301,55 +223,29 @@ if (fs.existsSync(coreIosDir)) {
     box.value = closure()
   }
   return box.value!
+}
+
+internal func performSynchronouslyOnMainThreadThrowing<Result>(_ closure: () throws -> Result) throws -> Result {
+  if Thread.isMainThread {
+    return try closure()
+  }
+  let box = NonisolatedUnsafeVar<Swift.Result<Result, Error>?>(nil)
+  DispatchQueue.main.sync {
+    do {
+      box.value = .success(try closure())
+    } catch {
+      box.value = .failure(error)
+    }
+  }
+  switch box.value! {
+  case .success(let val):
+    return val
+  case .failure(let err):
+    throw err
+  }
 }`;
-          if (content.includes('func performSynchronouslyOnMainActor')) {
-            content = content.replace(/internal func performSynchronouslyOnMainActor[\s\S]*?\n\}/m, newMainActorFn);
-            changed = true;
-          }
           if (content.includes('func performSynchronouslyOnMainThread')) {
             content = content.replace(/internal func performSynchronouslyOnMainThread[\s\S]*?(?=\/\*\*|\npublic struct Utilities)/m, newMainThreadFn + '\n\n');
-            changed = true;
-          }
-        }
-
-        // Fix URLAuthenticationChallengeForwardSender Sendable in URLAuthenticationChallengeForwardSender.swift
-        if (entry.name === 'URLAuthenticationChallengeForwardSender.swift') {
-          if (content.includes('internal final class URLAuthenticationChallengeForwardSender: NSObject, URLAuthenticationChallengeSender {')) {
-            content = content.replace(
-              'internal final class URLAuthenticationChallengeForwardSender: NSObject, URLAuthenticationChallengeSender {',
-              'internal final class URLAuthenticationChallengeForwardSender: NSObject, URLAuthenticationChallengeSender, @unchecked Sendable {'
-            );
-            changed = true;
-          }
-          if (content.includes('let completionHandler: (URLSession.AuthChallengeDisposition, URLCredential?) -> Void')) {
-            content = content.replace(
-              'let completionHandler: (URLSession.AuthChallengeDisposition, URLCredential?) -> Void',
-              'nonisolated(unsafe) let completionHandler: (URLSession.AuthChallengeDisposition, URLCredential?) -> Void'
-            );
-            changed = true;
-          }
-        }
-
-        // Fix URLSessionSessionDelegateProxy Sendable in URLSessionSessionDelegateProxy.swift
-        if (entry.name === 'URLSessionSessionDelegateProxy.swift') {
-          if (content.includes('public final class URLSessionSessionDelegateProxy: NSObject, URLSessionDataDelegate {')) {
-            content = content.replace(
-              'public final class URLSessionSessionDelegateProxy: NSObject, URLSessionDataDelegate {',
-              'public final class URLSessionSessionDelegateProxy: NSObject, URLSessionDataDelegate, @unchecked Sendable {'
-            );
-            changed = true;
-          }
-        }
-
-        // Fix AnyExpoSwiftUIHostingView in SwiftUIHostingView.swift methods to be @MainActor
-        if (entry.name === 'SwiftUIHostingView.swift') {
-          const newProto = `internal protocol AnyExpoSwiftUIHostingView: AnyObject {
-  @MainActor func updateProps(_ rawProps: [String: Any])
-  @MainActor func getContentView() -> any ExpoSwiftUI.View
-  @MainActor func getProps() -> ExpoSwiftUI.ViewProps
-}`;
-          if (content.includes('internal protocol AnyExpoSwiftUIHostingView')) {
-            content = content.replace(/(?:@MainActor\n)?internal protocol AnyExpoSwiftUIHostingView[\s\S]*?\n\}/m, newProto);
             changed = true;
           }
         }
