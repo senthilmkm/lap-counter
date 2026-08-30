@@ -932,6 +932,13 @@ internal func capturingCppErrors<R>(_ block: () throws -> R) throws -> R {
           content = content.replace(/typealias\s+(\w+)\s*=\s*@JavaScriptActor/g, 'typealias $1 =');
           changed = true;
         }
+        if (content.includes('internal final class HostObjectContext: Sendable')) {
+          content = content.replace(
+            'internal final class HostObjectContext: Sendable',
+            'internal final class HostObjectContext: @unchecked Sendable'
+          );
+          changed = true;
+        }
       }
 
       // Remove @escaping when used with function typealiases (Swift 6.0 requirement)
@@ -951,6 +958,17 @@ internal func capturingCppErrors<R>(_ block: () throws -> R) throws -> R {
       }
 
       if (entry.name === 'HostFunctionContext.swift') {
+        if (content.includes('internal final class HostFunctionContext: Sendable')) {
+          content = content.replace(
+            'internal final class HostFunctionContext: Sendable',
+            'internal final class HostFunctionContext: @unchecked Sendable'
+          );
+          content = content.replace(
+            'internal final class UnownedThisHostFunctionContext: Sendable',
+            'internal final class UnownedThisHostFunctionContext: @unchecked Sendable'
+          );
+          changed = true;
+        }
         if (content.includes('@escaping JavaScriptRuntime.')) {
           content = content.replace(/@escaping\s+JavaScriptRuntime\./g, 'JavaScriptRuntime.');
           changed = true;
