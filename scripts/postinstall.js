@@ -31,6 +31,7 @@ const path = require('path');
 //    - Remove 'consuming:' label from vector.push_back (Swift 6.0 C++ stdlib interop).
 //    - Strip any trailing commas before ')', ']', '}' (Swift 6.0 syntax compatibility).
 //    - Patch JavaScriptActor.swift with clean withoutActuallyEscaping.
+//    - Patch Task+immediate.swift for Swift 6.0 Task initializer signature.
 //    - Update createFunctionClosure & RuntimeScheduler creation in JavaScriptRuntime.swift.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -458,6 +459,27 @@ function patchSwiftFilesRecursively(dir) {
         changed = true;
       }
 
+      // Fix Task+immediate.swift for Swift 6.0 Task initializer
+      if (entry.name === 'Task+immediate.swift') {
+        const taskImmediateReplacement = `// swift-format-ignore-file: AlwaysUseLowerCamelCase
+
+import Foundation
+
+extension Task where Failure == any Error {
+  @discardableResult
+  public static func immediate_polyfill(
+    name: String? = nil,
+    priority: TaskPriority? = nil,
+    @_inheritActorContext @_implicitSelfCapture operation: sending @escaping @isolated(any) () async throws -> Success
+  ) -> Task<Success, any Error> {
+    return Task(priority: priority ?? .high, operation: operation)
+  }
+}
+`;
+        content = taskImmediateReplacement;
+        changed = true;
+      }
+
       // Fix JavaScriptRuntime.swift HostFunctionClosure & RuntimeScheduler creation
       if (entry.name === 'JavaScriptRuntime.swift') {
         if (content.includes('return expo.HostFunctionClosure(context, call, deallocate)')) {
@@ -582,7 +604,7 @@ internal final class JavaScriptRuntimeExecutor: JavaScriptExecutor, @unchecked S
 
 if (fs.existsSync(jsiSourcesDir)) {
   patchSwiftFilesRecursively(jsiSourcesDir);
-  console.log('✅ Patched expo-modules-jsi Swift files (nonisolated weak var, Escapable, CppError, JavaScriptActor, typed throws, consuming: label, createHostFunctionClosure, createRuntimeScheduler)');
+  console.log('✅ Patched expo-modules-jsi Swift files (nonisolated weak var, Escapable, CppError, JavaScriptActor, typed throws, consuming: label, createHostFunctionClosure, createRuntimeScheduler, Task+immediate)');
 } else {
   console.log('⚠️  expo-modules-jsi Sources dir not found');
 }
