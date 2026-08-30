@@ -776,9 +776,11 @@ extension Task where Failure == any Error {
 
         if (content.includes('global().setProperty(')) {
           content = content.replace(
-            'global().setProperty(',
+            /(?<!self\.)global\(\)\.setProperty\(/g,
             'self.global().setProperty('
           );
+          content = content.replace(/(?:self\.)+global\(\)/g, 'self.global()');
+          content = content.replace(/(?:self\.)+createObject\(\)/g, 'self.createObject()');
           changed = true;
         }
 
