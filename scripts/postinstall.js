@@ -726,6 +726,10 @@ extension Task where Failure == any Error {
             /public\s+typealias\s+UnownedThisSyncFunctionClosure\s*=\s*@JavaScriptActor\s*\(/g,
             'public typealias UnownedThisSyncFunctionClosure = ('
           );
+          content = content.replace(
+            /public\s+typealias\s+AsyncFunctionClosure\s*=\s*@JavaScriptActor\s*\(/g,
+            'public typealias AsyncFunctionClosure = ('
+          );
           changed = true;
         }
 
@@ -919,6 +923,13 @@ internal func capturingCppErrors<R>(_ block: () throws -> R) throws -> R {
     try checkCppError()
     return result`
             );
+          changed = true;
+        }
+      }
+
+      if (entry.name === 'HostObjectContext.swift') {
+        if (content.includes('@JavaScriptActor')) {
+          content = content.replace(/typealias\s+(\w+)\s*=\s*@JavaScriptActor/g, 'typealias $1 =');
           changed = true;
         }
       }
