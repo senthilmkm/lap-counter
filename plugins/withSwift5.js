@@ -18,11 +18,12 @@ module.exports = function withSwift5(config) {
       target.build_configurations.each do |config|
         config.build_settings['SWIFT_VERSION'] = '5.9'
         config.build_settings['SWIFT_STRICT_CONCURRENCY'] = 'minimal'
-        config.build_settings['OTHER_SWIFT_FLAGS'] ||= ['$(inherited)']
-        config.build_settings['OTHER_SWIFT_FLAGS'] << '-suppress-warnings'
-        config.build_settings['OTHER_SWIFT_FLAGS'] << '-strict-concurrency=minimal'
-        config.build_settings['OTHER_SWIFT_FLAGS'] << '-Xfrontend'
-        config.build_settings['OTHER_SWIFT_FLAGS'] << '-disable-actor-data-race-checks'
+        flags = config.build_settings['OTHER_SWIFT_FLAGS'] || '$(inherited)'
+        if flags.is_a?(Array)
+          flags = flags.join(' ')
+        end
+        flags = "#{flags} -suppress-warnings -strict-concurrency=minimal -Xfrontend -disable-actor-data-race-checks"
+        config.build_settings['OTHER_SWIFT_FLAGS'] = flags
       end
     end
 `;
