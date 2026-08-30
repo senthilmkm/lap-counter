@@ -188,14 +188,7 @@ if (fs.existsSync(coreIosDir)) {
           if (content.includes('let completionHandler: (URLSession.AuthChallengeDisposition, URLCredential?) -> Void')) {
             content = content.replace(
               'let completionHandler: (URLSession.AuthChallengeDisposition, URLCredential?) -> Void',
-              'let completionHandler: @Sendable (URLSession.AuthChallengeDisposition, URLCredential?) -> Void'
-            );
-            changed = true;
-          }
-          if (content.includes('init(completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void)')) {
-            content = content.replace(
-              'init(completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void)',
-              'init(completionHandler: @Sendable @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void)'
+              'nonisolated(unsafe) let completionHandler: (URLSession.AuthChallengeDisposition, URLCredential?) -> Void'
             );
             changed = true;
           }
