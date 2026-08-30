@@ -206,8 +206,16 @@ if (fs.existsSync(coreIosDir)) {
 
         // Fix ExpoSwiftUI.swift ViewWrapper
         if (entry.name === 'ExpoSwiftUI.swift') {
+          if (!content.includes('import _Concurrency')) {
+            content = "import _Concurrency\n" + content;
+            changed = true;
+          }
           if (content.includes('@MainActor\n  public protocol ViewWrapper {')) {
             content = content.replace('@MainActor\n  public protocol ViewWrapper {', '  public protocol ViewWrapper {');
+            changed = true;
+          }
+          if (content.includes('public protocol ViewWrapper {') && !content.includes('@MainActor\n    func getWrappedView()')) {
+            content = content.replace('func getWrappedView() -> Any', '@MainActor\n    func getWrappedView() -> Any');
             changed = true;
           }
         }
