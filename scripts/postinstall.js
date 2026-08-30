@@ -20,8 +20,8 @@ const path = require('path');
 //    experimental features, and trailing commas in argument lists that break Swift 6.0).
 //
 // 4. expo-modules-jsi C++ Headers:
-//    - RuntimeScheduler.h: Add #ifndef SWIFT_RETURNS_RETAINED fallback define.
-//    - RetainedSwiftPointer.h & HostFunctionClosure.h: Clean function pointer types and remove SWIFT_IMMORTAL_REFERENCE.
+//    - RuntimeScheduler.h: Add #define SWIFT_RETURNS_RETAINED __attribute__((swift_attr("returns_retained"))).
+//    - RetainedSwiftPointer.h & HostFunctionClosure.h: Add SWIFT_RETURNS_UNRETAINED and function pointer signatures.
 //
 // 5. expo-modules-jsi Swift sources:
 //    - Replace 'weak let' with 'nonisolated(unsafe) weak var' (for Swift 6.0 Sendable compatibility).
@@ -241,46 +241,171 @@ const cxxIncludeDir = path.join(
 // 4a. RuntimeScheduler.h
 const runtimeSchedulerPath = path.join(cxxIncludeDir, 'RuntimeScheduler.h');
 if (fs.existsSync(runtimeSchedulerPath)) {
-  let headerContent = fs.readFileSync(runtimeSchedulerPath, 'utf8');
-  if (!headerContent.includes('#ifndef SWIFT_RETURNS_RETAINED')) {
-    headerContent = headerContent.replace(
-      '#include <swift/bridging>',
-      '#include <swift/bridging>\n\n#ifndef SWIFT_RETURNS_RETAINED\n#define SWIFT_RETURNS_RETAINED\n#endif'
-    );
-    fs.writeFileSync(runtimeSchedulerPath, headerContent, 'utf8');
-    console.log('✅ Patched RuntimeScheduler.h with SWIFT_RETURNS_RETAINED fallback');
-  } else {
-    console.log('✔  RuntimeScheduler.h already has SWIFT_RETURNS_RETAINED fallback');
+  const content = `#pragma once
+
+#ifdef __cplusplus
+
+#include <atomic>
+#include <swift/bridging>
+
+#ifndef SWIFT_RETURNS_RETAINED
+#if __has_attribute(swift_attr)
+#define SWIFT_RETURNS_RETAINED __attribute__((swift_attr("returns_retained")))
+#else
+#define SWIFT_RETURNS_RETAINED
+#endif
+#endif
+
+namespace expo {
+
+class RuntimeScheduler {
+public:
+  enum class Priority : int {
+    ImmediatePriority = 1,
+    UserBlockingPriority = 2,
+    NormalPriority = 3,
+    LowPriority = 4,
+    IdlePriority = 5,
+  };
+
+  using ScheduleTaskCallback = void(^)();
+  using ScheduleFn = void (*)(void *nativeScheduler, int priority, ScheduleTaskCallback callback);
+
+private:
+  void *const nativeScheduler{nullptr};
+  const ScheduleFn scheduleFn{nullptr};
+
+  std::atomic<int> refCount{1};
+
+public:
+  SWIFT_RETURNS_RETAINED RuntimeScheduler(void *scheduler, ScheduleFn fn) noexcept
+      : nativeScheduler(scheduler), scheduleFn(fn) {}
+
+  SWIFT_RETURNS_RETAINED RuntimeScheduler() {}
+
+  RuntimeScheduler(const RuntimeScheduler &) = delete;
+
+  bool supportsAsyncScheduling() const noexcept {
+    return scheduleFn != nullptr;
   }
+
+  void scheduleTask(Priority priority, ScheduleTaskCallback callback) noexcept {
+    if (scheduleFn != nullptr) {
+      scheduleFn(nativeScheduler, static_cast<int>(priority), callback);
+    } else {
+      callback();
+    }
+  }
+
+  void retain() {
+    refCount.fetch_add(1, std::memory_order_relaxed);
+  }
+
+  void release() {
+    if (refCount.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+      delete this;
+    }
+  }
+} SWIFT_SHARED_REFERENCE(retainRuntimeScheduler, releaseRuntimeScheduler);
+
+} // namespace expo
+
+inline void retainRuntimeScheduler(expo::RuntimeScheduler *scheduler) {
+  scheduler->retain();
+}
+
+inline void releaseRuntimeScheduler(expo::RuntimeScheduler *scheduler) {
+  scheduler->release();
+}
+
+#endif // __cplusplus
+`;
+  fs.writeFileSync(runtimeSchedulerPath, content, 'utf8');
+  console.log('✅ Patched RuntimeScheduler.h with returns_retained attribute');
 }
 
 // 4b. RetainedSwiftPointer.h
 const retainedPointerPath = path.join(cxxIncludeDir, 'RetainedSwiftPointer.h');
 if (fs.existsSync(retainedPointerPath)) {
-  let content = fs.readFileSync(retainedPointerPath, 'utf8');
-  content = content
-    .replace('using Deallocator = void(Context);', 'using Deallocator = void (*)(Context);')
-    .replace(/explicit\s+RetainedSwiftPointer/g, 'RetainedSwiftPointer')
-    .replace('Deallocator *_Nonnull _deallocator;', 'Deallocator _deallocator;')
-    .replace(/}\s*SWIFT_IMMORTAL_REFERENCE\s*;/g, '};');
+  const content = `#pragma once
+
+#include <memory>
+#include <swift/bridging>
+
+#ifndef SWIFT_RETURNS_UNRETAINED
+#if __has_attribute(swift_attr)
+#define SWIFT_RETURNS_UNRETAINED __attribute__((swift_attr("returns_unretained")))
+#else
+#define SWIFT_RETURNS_UNRETAINED
+#endif
+#endif
+
+namespace expo {
+
+class RetainedSwiftPointer {
+public:
+  using Context = void *_Nonnull;
+  using Deallocator = void (*)(Context);
+
+  SWIFT_RETURNS_UNRETAINED RetainedSwiftPointer(Context context, Deallocator deallocator) : _context(context), _deallocator(deallocator) {}
+
+  virtual ~RetainedSwiftPointer() = default;
+
+protected:
+  Context _context;
+  Deallocator _deallocator;
+
+} SWIFT_IMMORTAL_REFERENCE;
+
+} // namespace expo
+`;
   fs.writeFileSync(retainedPointerPath, content, 'utf8');
-  console.log('✅ Patched RetainedSwiftPointer.h (function pointer & normal struct)');
+  console.log('✅ Patched RetainedSwiftPointer.h with returns_unretained attribute');
 }
 
 // 4c. HostFunctionClosure.h
 const hostClosurePath = path.join(cxxIncludeDir, 'HostFunctionClosure.h');
 if (fs.existsSync(hostClosurePath)) {
-  let content = fs.readFileSync(hostClosurePath, 'utf8');
-  content = content
-    .replace(
-      'using Closure = facebook::jsi::Value(Context context, const facebook::jsi::Value *_Nonnull thisValue, const facebook::jsi::Value *_Nonnull args, size_t count);',
-      'using Closure = facebook::jsi::Value (*)(Context context, const facebook::jsi::Value *_Nonnull thisValue, const facebook::jsi::Value *_Nonnull args, size_t count);'
-    )
-    .replace(/explicit\s+HostFunctionClosure/g, 'HostFunctionClosure')
-    .replace('Closure *_Nonnull _closure;', 'Closure _closure;')
-    .replace(/}\s*SWIFT_IMMORTAL_REFERENCE\s*;/g, '};');
+  const content = `#pragma once
+
+#include <swift/bridging>
+#include <jsi/jsi.h>
+
+#include "RetainedSwiftPointer.h"
+
+#ifndef SWIFT_RETURNS_UNRETAINED
+#if __has_attribute(swift_attr)
+#define SWIFT_RETURNS_UNRETAINED __attribute__((swift_attr("returns_unretained")))
+#else
+#define SWIFT_RETURNS_UNRETAINED
+#endif
+#endif
+
+namespace expo {
+
+class HostFunctionClosure final : public RetainedSwiftPointer {
+public:
+  using Closure = facebook::jsi::Value (*)(Context context, const facebook::jsi::Value *_Nonnull thisValue, const facebook::jsi::Value *_Nonnull args, size_t count);
+
+  SWIFT_RETURNS_UNRETAINED HostFunctionClosure(Context context, Closure closure, Deallocator deallocator) : RetainedSwiftPointer(context, deallocator), _closure(closure) {};
+
+  virtual ~HostFunctionClosure() {
+    _deallocator(_context);
+  }
+
+  inline facebook::jsi::Value call(const facebook::jsi::Value &thisValue, const facebook::jsi::Value *_Nonnull args, size_t count) const {
+    return _closure(_context, &thisValue, args, count);
+  }
+
+private:
+  Closure _closure;
+
+} SWIFT_IMMORTAL_REFERENCE;
+
+} // namespace expo
+`;
   fs.writeFileSync(hostClosurePath, content, 'utf8');
-  console.log('✅ Patched HostFunctionClosure.h (function pointer & normal struct)');
+  console.log('✅ Patched HostFunctionClosure.h with returns_unretained attribute');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
