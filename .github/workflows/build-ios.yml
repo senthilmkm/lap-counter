@@ -52,9 +52,10 @@ jobs:
       - name: 🔨 Build iOS IPA (Free Local Xcode 16 Build)
         env:
           EXPO_DEBUG: "1"
+          DEBUG: "eas*,expo*"
           EAS_LOCAL_BUILD_WORKINGDIR: "/Users/runner/work/eas-build"
         run: |
-          eas build --platform ios --profile production --local --non-interactive --output ./Orbit.ipa --verbose
+          eas build --platform ios --profile production --local --non-interactive --output ./Orbit.ipa
 
       - name: 📤 Submit IPA to Apple App Store Connect
         run: |
@@ -64,7 +65,7 @@ jobs:
         if: failure()
         run: |
           echo "=== Searching for all log files in /Users/runner ==="
-          find /Users/runner/work /Users/runner/Library/Logs /private/var/folders /tmp -type f \( -name "*.log" -o -name "*gym*" -o -name "*xcodebuild*" \) 2>/dev/null | while read -r logfile; do
+          find /Users/runner/work /Users/runner/Library/Logs /private/var/folders /tmp -type f \( -name "*.log" -o -name "*gym*" -o -name "*xcodebuild*" \) 2>/dev/null | grep -v "CoreSimulator" | while read -r logfile; do
             if [ -s "$logfile" ] && [ $(stat -f%z "$logfile" 2>/dev/null || echo 0) -lt 50000000 ]; then
               echo "================================================================================"
               echo "Log: $logfile"
