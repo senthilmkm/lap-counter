@@ -178,10 +178,7 @@ if (fs.existsSync(coreIosDir)) {
 
         // Fix DynamicSwiftUIViewType in DynamicSwiftUIViewType.swift
         if (entry.name === 'DynamicSwiftUIViewType.swift') {
-          const newCastBody = `    final class NonisolatedBox: @unchecked Sendable {
-      var value: Any?
-    }
-    let box = NonisolatedBox()
+          const newCastBody = `    let box = NonisolatedUnsafeVar<Any?>(nil)
     let resolveClosure = { @MainActor in
       if let view = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.SwiftUIVirtualView<ViewType.Props, ViewType>.self) {
         box.value = view.contentView
@@ -221,6 +218,22 @@ if (fs.existsSync(coreIosDir)) {
             changed = true;
           } else if (content.includes('let resolvedView = performSynchronouslyOnMainThread {')) {
             content = content.replace(/    let resolvedView = performSynchronouslyOnMainThread \{[\s\S]*?    return result/m, newCastBody);
+            changed = true;
+          } else if (content.includes('final class NonisolatedBox')) {
+            content = content.replace(/    final class NonisolatedBox[\s\S]*?    return result/m, newCastBody);
+            changed = true;
+          }
+        }
+
+        // Fix SwiftUIHostingView in SwiftUIHostingView.swift
+        if (entry.name === 'SwiftUIHostingView.swift') {
+          const newProto = `internal protocol AnyExpoSwiftUIHostingView: AnyObject {
+  @MainActor func updateProps(_ rawProps: [String: Any])
+  @MainActor func getContentView() -> any ExpoSwiftUI.View
+  @MainActor func getProps() -> ExpoSwiftUI.ViewProps
+}`;
+          if (content.includes('internal protocol AnyExpoSwiftUIHostingView')) {
+            content = content.replace(/(?:@MainActor\n)?internal protocol AnyExpoSwiftUIHostingView[\s\S]*?\n\}/m, newProto);
             changed = true;
           }
         }
