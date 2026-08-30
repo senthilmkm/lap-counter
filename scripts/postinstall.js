@@ -79,30 +79,23 @@ for (const podspecPath of podspecsToFix) {
       );
       changed = true;
     }
-    if (content.includes("s.swift_version  = '5.0'")) {
-      content = content.replace("s.swift_version  = '5.0'", "s.swift_version  = '6.0'");
+    if (content.includes("s.swift_version  = '6.0'")) {
+      content = content.replace("s.swift_version  = '6.0'", "s.swift_version  = '5.0'");
       changed = true;
     }
-    if (content.includes("s.swift_version = '5.0'")) {
-      content = content.replace("s.swift_version = '5.0'", "s.swift_version = '6.0'");
-      changed = true;
-    }
-    if (content.includes("'OTHER_SWIFT_FLAGS' => \"$(inherited)") && !content.includes('-strict-concurrency=minimal')) {
-      content = content.replace(
-        "'OTHER_SWIFT_FLAGS' => \"$(inherited)",
-        "'OTHER_SWIFT_FLAGS' => \"$(inherited) -strict-concurrency=minimal"
-      );
+    if (content.includes("s.swift_version = '6.0'")) {
+      content = content.replace("s.swift_version = '6.0'", "s.swift_version = '5.0'");
       changed = true;
     }
     if (changed) {
       fs.writeFileSync(podspecPath, content, 'utf8');
-      console.log(`✅ Patched ${path.basename(podspecPath)} (build from source, Swift 6.0 mode, minimal concurrency checking)`);
+      console.log(`✅ Patched ${path.basename(podspecPath)} (build from source, Swift 5.0 mode)`);
     }
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 1c. Patch expo-modules-core Swift files for Swift 6 syntax (weak var, any Record)
+// 1c. Patch expo-modules-core Swift files (import _Concurrency, weak var, any Record)
 // ─────────────────────────────────────────────────────────────────────────────
 const coreIosDir = path.join(__dirname, '..', 'node_modules', 'expo-modules-core', 'ios');
 if (fs.existsSync(coreIosDir)) {
@@ -115,6 +108,12 @@ if (fs.existsSync(coreIosDir)) {
       } else if (entry.name.endsWith('.swift')) {
         let content = fs.readFileSync(fullPath, 'utf8');
         let changed = false;
+
+        // Ensure import _Concurrency is present whenever @MainActor or Task or Sendable is used
+        if ((content.includes('@MainActor') || content.includes('MainActor') || content.includes('Sendable')) && !content.includes('import _Concurrency')) {
+          content = `import _Concurrency\n` + content;
+          changed = true;
+        }
 
         // Fix 'weak let' -> 'weak var'
         if (content.includes('weak let')) {
