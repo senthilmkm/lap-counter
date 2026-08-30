@@ -838,7 +838,14 @@ extension Task where Failure == any Error {
         if (content.includes('return try constructor(this, arguments)')) {
           content = content.replace(
             'return try constructor(this, arguments)',
-            'return try constructor(this, consume arguments)'
+            'return try constructor(this, arguments.copy())'
+          );
+          changed = true;
+        }
+        if (content.includes('return try constructor(this, consume arguments)')) {
+          content = content.replace(
+            'return try constructor(this, consume arguments)',
+            'return try constructor(this, arguments.copy())'
           );
           changed = true;
         }
