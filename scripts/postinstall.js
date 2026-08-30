@@ -787,7 +787,9 @@ public actor JavaScriptActor: GlobalActor {
   @inline(__always)
   public static func assumeIsolated<T>(_ operation: @JavaScriptActor () throws -> T) rethrows -> T {
     Self.checkIsolated()
-    return try JavaScriptActor.shared.assumeIsolated(operation)
+    return try (Self.shared as any Actor).assumeIsolated { _ in
+      return try operation()
+    }
   }
 
   @inlinable
