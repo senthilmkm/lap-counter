@@ -22,6 +22,7 @@ const path = require('path');
 // 4. expo-modules-jsi C++ Headers:
 //    - RuntimeScheduler.h: Add createRuntimeScheduler factory functions.
 //    - RetainedSwiftPointer.h & HostFunctionClosure.h: Add createHostFunctionClosure factory.
+//    - HostObjectCallbacks.h & HostObject.h: Add makeHostObject factory function.
 //
 // 5. expo-modules-jsi Swift sources:
 //    - Replace 'weak let' with 'nonisolated(unsafe) weak var' (for Swift 6.0 Sendable compatibility).
@@ -32,7 +33,7 @@ const path = require('path');
 //    - Strip any trailing commas before ')', ']', '}' (Swift 6.0 syntax compatibility).
 //    - Patch JavaScriptActor.swift with clean withoutActuallyEscaping.
 //    - Patch Task+immediate.swift for Swift 6.0 Task initializer signature.
-//    - Update createFunctionClosure & RuntimeScheduler creation in JavaScriptRuntime.swift.
+//    - Update createFunctionClosure, createHostObject & RuntimeScheduler creation in JavaScriptRuntime.swift.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -396,6 +397,97 @@ inline HostFunctionClosure * _Nonnull createHostFunctionClosure(void * _Nonnull 
   console.log('✅ Patched HostFunctionClosure.h with createHostFunctionClosure factory');
 }
 
+// 4d. HostObjectCallbacks.h & HostObject.h
+const hostCallbacksPath = path.join(cxxIncludeDir, 'HostObjectCallbacks.h');
+if (fs.existsSync(hostCallbacksPath)) {
+  const content = `#pragma once
+
+#ifdef __cplusplus
+
+#include <swift/bridging>
+#include <jsi/jsi.h>
+#include <vector>
+
+#include "RetainedSwiftPointer.h"
+
+namespace expo {
+
+class HostObjectCallbacks final {
+public:
+  using Context = void *_Nonnull;
+  using PropNameIds = std::vector<facebook::jsi::PropNameID>;
+  using Getter = facebook::jsi::Value (*)(Context, const char *_Nonnull name);
+  using Setter = void (*)(Context, const char *_Nonnull name, void *_Nonnull value);
+  using PropertyNamesGetter = PropNameIds (*)(Context);
+  using Deallocator = void (*)(Context);
+
+  HostObjectCallbacks(Context context, Getter getter, Setter _Nullable setter, PropertyNamesGetter propertyNamesGetter, Deallocator deallocator)
+  : _context(context), _getter(getter), _setter(setter), _propertyNamesGetter(propertyNamesGetter), _deallocator(deallocator) {}
+
+  inline facebook::jsi::Value get(const char *_Nonnull name) const {
+    return _getter(_context, name);
+  }
+
+  inline void set(facebook::jsi::Runtime &runtime, const char *_Nonnull name, const facebook::jsi::Value &value) const {
+    if (_setter == nullptr) {
+      throw facebook::jsi::JSError(
+        runtime,
+        std::string("Cannot set property '") + name + "' on a read-only host object: no setter was provided when the host object was created."
+      );
+    }
+    _setter(_context, name, (void *)(&value));
+  }
+
+  inline PropNameIds getPropertyNames() const {
+    return _propertyNamesGetter(_context);
+  }
+
+  inline void dealloc() {
+    _deallocator(_context);
+  }
+
+private:
+  Context _context;
+  Getter _getter;
+  Setter _setter;
+  PropertyNamesGetter _propertyNamesGetter;
+  Deallocator _deallocator;
+};
+
+} // namespace expo
+
+#endif // __cplusplus
+`;
+  fs.writeFileSync(hostCallbacksPath, content, 'utf8');
+  console.log('✅ Patched HostObjectCallbacks.h');
+}
+
+const hostObjectPath = path.join(cxxIncludeDir, 'HostObject.h');
+if (fs.existsSync(hostObjectPath)) {
+  let hostObjectContent = fs.readFileSync(hostObjectPath, 'utf8');
+  if (!hostObjectContent.includes('makeHostObject')) {
+    const factoryHelper = `
+inline facebook::jsi::Object makeHostObject(
+  facebook::jsi::Runtime &runtime,
+  void *_Nonnull context,
+  HostObjectCallbacks::Getter getter,
+  HostObjectCallbacks::Setter setter,
+  HostObjectCallbacks::PropertyNamesGetter propertyNamesGetter,
+  HostObjectCallbacks::Deallocator deallocator
+) {
+  HostObjectCallbacks callbacks(context, getter, setter, propertyNamesGetter, deallocator);
+  return HostObject::makeObject(runtime, std::move(callbacks));
+}
+`;
+    hostObjectContent = hostObjectContent.replace(
+      '} // namespace expo',
+      factoryHelper + '\n} // namespace expo'
+    );
+    fs.writeFileSync(hostObjectPath, hostObjectContent, 'utf8');
+    console.log('✅ Patched HostObject.h with makeHostObject factory function');
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 5. Patch expo-modules-jsi Swift sources for Swift 6.0 compatibility
 // ─────────────────────────────────────────────────────────────────────────────
@@ -480,7 +572,7 @@ extension Task where Failure == any Error {
         changed = true;
       }
 
-      // Fix JavaScriptRuntime.swift HostFunctionClosure & RuntimeScheduler creation
+      // Fix JavaScriptRuntime.swift HostFunctionClosure, HostObject & RuntimeScheduler creation
       if (entry.name === 'JavaScriptRuntime.swift') {
         if (content.includes('return expo.HostFunctionClosure(context, call, deallocate)')) {
           content = content.replace(
@@ -502,6 +594,14 @@ extension Task where Failure == any Error {
           content = content.replace(
             /self\.scheduler\s*=\s*expo\.RuntimeScheduler\((scheduler,\s*fn)\)/g,
             'self.scheduler = expo.createRuntimeScheduler($1)'
+          );
+          changed = true;
+        }
+
+        if (content.includes('let callbacks = expo.HostObjectCallbacks(')) {
+          content = content.replace(
+            /let\s+callbacks\s*=\s*expo\.HostObjectCallbacks\([\s\S]*?let\s+hostObject\s*=\s*expo\.HostObject\.makeObject\(pointee,\s*consume\s+callbacks\)/,
+            'let hostObject = expo.makeHostObject(pointee, context, getter, set == nil ? nil : setterPointer, propertyNamesGetter, deallocate)'
           );
           changed = true;
         }
@@ -604,7 +704,7 @@ internal final class JavaScriptRuntimeExecutor: JavaScriptExecutor, @unchecked S
 
 if (fs.existsSync(jsiSourcesDir)) {
   patchSwiftFilesRecursively(jsiSourcesDir);
-  console.log('✅ Patched expo-modules-jsi Swift files (nonisolated weak var, Escapable, CppError, JavaScriptActor, typed throws, consuming: label, createHostFunctionClosure, createRuntimeScheduler, Task+immediate)');
+  console.log('✅ Patched expo-modules-jsi Swift files (nonisolated weak var, Escapable, CppError, JavaScriptActor, typed throws, consuming: label, createHostFunctionClosure, createRuntimeScheduler, Task+immediate, makeHostObject)');
 } else {
   console.log('⚠️  expo-modules-jsi Sources dir not found');
 }
