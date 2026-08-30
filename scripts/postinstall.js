@@ -1257,6 +1257,14 @@ if (fs.existsSync(buildXcframeworkScript)) {
     scriptContent = scriptContent.replace(/\s*OTHER_SWIFT_FLAGS="[^"]*"\s*\\?/g, '');
     changedScript = true;
   }
+  if (scriptContent.includes('SWIFT_COMPILATION_MODE=wholemodule \\')) {
+    scriptContent = scriptContent.replace('SWIFT_COMPILATION_MODE=wholemodule \\', 'SWIFT_COMPILATION_MODE=wholemodule');
+    changedScript = true;
+  }
+  if (scriptContent.includes('SWIFT_COMPILATION_MODE=wholemodule)')) {
+    scriptContent = scriptContent.replace('SWIFT_COMPILATION_MODE=wholemodule)', 'SWIFT_COMPILATION_MODE=wholemodule\n  )');
+    changedScript = true;
+  }
   if (scriptContent.includes('cp "${generated_maps}/${PACKAGE_NAME}-Swift.h" "$headers_dir/"')) {
     scriptContent = scriptContent.replace(
       'cp "${generated_maps}/${PACKAGE_NAME}-Swift.h" "$headers_dir/"',
@@ -1274,7 +1282,7 @@ if (fs.existsSync(buildXcframeworkScript)) {
   }
   if (changedScript) {
     fs.writeFileSync(buildXcframeworkScript, scriptContent, 'utf8');
-    console.log('✅ Patched build-xcframework.sh (removed -quiet, robust Swift.h copy)');
+    console.log('✅ Patched build-xcframework.sh (clean syntax, removed -quiet, robust Swift.h copy)');
   }
 }
 
