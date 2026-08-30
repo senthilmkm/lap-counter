@@ -320,7 +320,7 @@ if (fs.existsSync(coreIosDir)) {
       }
       return view.getContentView()
     }`;
-          const newCastBody = `    return try performSynchronouslyOnMainThread {
+          const newCastBody = `    return try performSynchronouslyOnMainThreadThrowing {
       typealias ResolveFn = @MainActor () throws -> Any
       let resolve: ResolveFn = {
         if let view = appContext.findView(withTag: viewTag, ofType: ExpoSwiftUI.SwiftUIVirtualView<ViewType.Props, ViewType>.self) {
@@ -348,6 +348,9 @@ if (fs.existsSync(coreIosDir)) {
           } else if (content.includes(oldCastBodyThread)) {
             content = content.replace(oldCastBodyThread, newCastBody);
             changed = true;
+          } else if (content.includes('return try performSynchronouslyOnMainThread {')) {
+            content = content.replace('return try performSynchronouslyOnMainThread {', 'return try performSynchronouslyOnMainThreadThrowing {');
+            changed = true;
           }
         }
 
@@ -372,7 +375,7 @@ if (fs.existsSync(coreIosDir)) {
   return box.value!
 }
 
-internal func performSynchronouslyOnMainThread<Result>(_ closure: () throws -> Result) throws -> Result {
+internal func performSynchronouslyOnMainThreadThrowing<Result>(_ closure: () throws -> Result) throws -> Result {
   if Thread.isMainThread {
     return try closure()
   }
