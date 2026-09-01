@@ -27,7 +27,7 @@
           "com.senth.lapcounter.background-scan"
         ]
       },
-      "buildNumber": "10"
+      "buildNumber": "13"
     },
     "android": {
       "package": "com.senth.lapcounter",
@@ -87,8 +87,7 @@
       ],
       "expo-sqlite",
       "expo-sharing",
-      "expo-web-browser",
-      "./plugins/withSwift5.js"
+      "expo-web-browser"
     ],
     "extra": {
       "eas": {
